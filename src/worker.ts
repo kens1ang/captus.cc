@@ -46,6 +46,40 @@ interface BufferedMessage {
   messageId: string;
 }
 
+/**
+ * Records a fixed apology reply + escalates to a human, without ever
+ * touching the LLM — used both for media types we don't handle at all
+ * (images/docs/stickers) and for a voice note we couldn't get usable text
+ * out of (silent, unintelligible, transcription API failure). Deliberately
+ * rule-based: whatever went wrong, the customer still gets a reply instead
+ * of the job just dying after retries, and a human finds out either way.
+ */
+async function acknowledgeAndEscalate(
+  tenantId: string,
+  from: string,
+  messageId: string,
+  waPhoneNumberId: string,
+  inboundLogText: string,
+  ack: string,
+  escalateContext: string,
+  escalateReason: string,
+): Promise<void> {
+  const inserted = await withTenant(tenantId, async (client) => {
+    const conversationId = await getOrCreateConversation(client, tenantId, from);
+    const { inserted } = await insertMessage(client, tenantId, conversationId, "in", inboundLogText, messageId);
+    if (!inserted) return false;
+    await insertMessage(client, tenantId, conversationId, "out", ack);
+    await touchConversation(client, conversationId);
+    return true;
+  });
+  if (!inserted) {
+    console.log(`[worker] duplicate job for message ${messageId} — already acknowledged, skipping`);
+    return;
+  }
+  await sendTextMessage(waPhoneNumberId, from, ack);
+  await notifyEscalation(waPhoneNumberId, from, escalateContext, escalateReason);
+}
+
 /** Per-contact rate limit — a generic guard against reply loops/spam bursts, regardless of cause. */
 async function isRateLimited(from: string): Promise<boolean> {
   const key = `ratelimit:${from}`;
@@ -105,25 +139,14 @@ const inboundWorker = new Worker<InboundMessageJob>(
     }
 
     if (kind === "unsupported") {
-      const ack =
-        "Thanks for sending that — right now I can only read text and voice messages. Could you describe what you need in a text message? I've flagged this for the team to take a look too.";
-      const inserted = await withTenant(tenantId, async (client) => {
-        const conversationId = await getOrCreateConversation(client, tenantId, from);
-        const { inserted } = await insertMessage(client, tenantId, conversationId, "in", "[unsupported media message]", messageId);
-        if (!inserted) return false;
-        await insertMessage(client, tenantId, conversationId, "out", ack);
-        await touchConversation(client, conversationId);
-        return true;
-      });
-      if (!inserted) {
-        console.log(`[worker] duplicate job for message ${messageId} — already acknowledged, skipping`);
-        return;
-      }
       console.log(`[worker] unsupported message type from ${from} (msg ${messageId}) — acknowledging, not dropping`);
-      await sendTextMessage(waPhoneNumberId, from, ack);
-      await notifyEscalation(
-        waPhoneNumberId,
+      await acknowledgeAndEscalate(
+        tenantId,
         from,
+        messageId,
+        waPhoneNumberId,
+        "[unsupported media message]",
+        "Thanks for sending that — right now I can only read text and voice messages. Could you describe what you need in a text message? I've flagged this for the team to take a look too.",
         "[customer sent a photo/file/other unsupported message type]",
         "unsupported media — needs manual review",
       );
@@ -136,9 +159,29 @@ const inboundWorker = new Worker<InboundMessageJob>(
         throw new Error("audio job missing mediaId/mimeType");
       }
       console.log(`[worker] transcribing voice note from ${from} (msg ${messageId})`);
-      const media = await downloadMedia(job.data.mediaId);
-      text = await transcribeAudio(media.data, media.mimeType);
-      console.log(`[worker] transcript: "${text}"`);
+      try {
+        const media = await downloadMedia(job.data.mediaId);
+        text = await transcribeAudio(media.data, media.mimeType);
+        console.log(`[worker] transcript: "${text}"`);
+      } catch (err) {
+        // Silent/empty audio, or the transcription call itself failing —
+        // previously this threw uncaught, BullMQ retried 3x, then the job
+        // just died with the customer never hearing back at all. Same
+        // rule-based fallback as the "unsupported" branch instead: the
+        // customer always gets *something*, and a human gets pinged.
+        console.warn(`[worker] voice note transcription failed for ${from} (msg ${messageId}):`, err);
+        await acknowledgeAndEscalate(
+          tenantId,
+          from,
+          messageId,
+          waPhoneNumberId,
+          "[voice note — transcription failed]",
+          "Sorry, I couldn't quite make out that voice note (it may have been unclear or silent) — could you try again or send it as a text message? I've flagged this for the team too.",
+          "[customer sent a voice note that failed to transcribe]",
+          "voice note transcription failed — needs manual review",
+        );
+        return;
+      }
     } else {
       text = job.data.text ?? "";
     }
