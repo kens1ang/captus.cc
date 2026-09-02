@@ -1,0 +1,30 @@
+What is Captus?
+Captus is a WhatsApp AI agent for small and medium businesses. You connect your existing WhatsApp Business number, and Captus answers customer questions 24/7 — pricing, hours, policies, and general support — in your business's own voice. It escalates to a real person whenever it isn't confident, so customers never get stuck talking to a bot that doesn't know the answer.
+
+What can Captus do today, and what's coming next?
+Right now Captus handles conversational FAQ support: answering customer questions from a knowledge base you provide. Coming soon: automatic appointment booking synced to Google Calendar, invoice generation with payment links (Stripe, HitPay), a CRM that tags and remembers customer conversations, and automated follow-up reminders for unpaid invoices or abandoned bookings.
+
+Pricing plans.
+Captus has three plans, billed monthly, no long-term contract required:
+- Starter: $49/month. One WhatsApp number, up to 500 customer conversations per month, FAQ answering only.
+- Growth: $149/month. One WhatsApp number, up to 3,000 conversations per month, FAQ answering plus booking and invoicing tools once available.
+- Business: $399/month. Up to 3 WhatsApp numbers, unlimited conversations, priority support, and a dedicated onboarding call.
+All plans include a 14-day free trial, no credit card required to start the trial.
+
+Support hours and response times.
+Captus support is available Monday to Friday, 9am–6pm Singapore time (GMT+8), via email and WhatsApp. Starter and Growth plan customers can expect a response within 1 business day. Business plan customers get priority support with a same-business-day response target. Captus itself (the AI agent) answers customer messages instantly, 24 hours a day, 7 days a week — the support hours above are for when you, the business owner, need help from the Captus team.
+
+Cancellation and refund policy.
+You can cancel your Captus subscription at any time from your account settings — there are no cancellation fees and no long-term lock-in. If you cancel, your plan remains active until the end of the current billing period. Captus offers a full refund if requested within 7 days of your first paid charge; refunds are not offered for partial months after that window.
+
+Data privacy and security.
+Customer conversations are stored securely per business (each business's data is isolated from every other business) and are never shared across accounts. Captus does not sell customer data to third parties. Message content is used only to generate replies and to improve your own business's knowledge base — it is not used to train shared models across customers.
+
+Onboarding: how do I get started?
+Getting started takes about 15 minutes: (1) connect your WhatsApp Business number through Meta's WhatsApp Cloud API, (2) paste in your FAQ content — pricing, hours, policies, anything customers commonly ask — and Captus turns it into a searchable knowledge base automatically, (3) send a test message to make sure replies look right, then go live. The Business plan includes a free 30-minute onboarding call with the Captus team to help set this up.
+
+What happens when Captus doesn't know an answer?
+If a customer asks something outside the knowledge base you've provided, Captus will say honestly that it doesn't know rather than guessing, and it can flag the conversation for a human to follow up on. Captus is designed to never invent prices, policies, or promises that aren't explicitly in your knowledge base — this is a hard rule, not a best-effort guideline.
+
+Which messaging channels does Captus support?
+Today, Captus supports WhatsApp only, via Meta's official WhatsApp Cloud API (a direct integration, not a third-party wrapper like Twilio). Support for other channels is not currently planned.
