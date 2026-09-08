@@ -224,6 +224,66 @@ export async function transcribeAudio(audioData: Buffer, mimeType: string): Prom
   return text;
 }
 
+/**
+ * What Gemini can actually take as inline data. Notably NOT xlsx/docx/pptx
+ * or archives — those still fall back to the acknowledge-and-escalate path
+ * rather than failing mid-analysis.
+ */
+export function isAnalyzableMedia(mimeType: string): boolean {
+  return (
+    mimeType.startsWith("image/") ||
+    mimeType === "application/pdf" ||
+    mimeType.startsWith("text/")
+  );
+}
+
+/** Inline data has a request-size ceiling, and base64 inflates by ~33% on top — stay well clear of it. */
+export const MAX_ANALYZABLE_MEDIA_BYTES = 10 * 1024 * 1024;
+
+/**
+ * Turns an image or document into text the normal reply pipeline can use —
+ * the same shape as voice-note handling (transcribe, then feed the text
+ * through as the customer's message), so history stays plain text and the
+ * dashboard shows something meaningful rather than "[unsupported media]".
+ */
+export async function describeMedia(data: Buffer, mimeType: string, filename?: string): Promise<string> {
+  const isImage = mimeType.startsWith("image/");
+  const instruction = isImage
+    ? `Describe this image for a business's customer-support assistant, who can't see it and has to act on your description alone.
+- State plainly what it shows.
+- Transcribe ANY text visible in the image verbatim (labels, receipts, screenshots, error messages, handwriting) — this is usually the most important part.
+- Describe only what's actually visible. Never guess at brands, prices, or details that aren't legible.
+- No preamble. Two or three sentences unless there's a lot of text to transcribe.`
+    : `Summarize this document for a business's customer-support assistant, who can't open it and has to act on your summary alone.
+- What kind of document it is and what it contains.
+- Quote the specific details that matter (names, amounts, dates, reference numbers, any request or question it contains).
+- Only what's actually in the document. Never infer or fill in gaps.
+- No preamble. Keep it under 200 words.`;
+
+  const url = `${GEMINI_API_BASE}/models/${config.gemini.transcriptionModel}:generateContent?key=${config.gemini.apiKey}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      contents: [
+        {
+          role: "user",
+          parts: [
+            { text: filename ? `${instruction}\n\nThe file is named "${filename}".` : instruction },
+            { inlineData: { mimeType, data: data.toString("base64") } },
+          ],
+        },
+      ],
+    }),
+  });
+  if (!res.ok) throw new Error(`Gemini media description failed (${res.status}): ${await res.text()}`);
+
+  const responseData = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  const text = responseData.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() ?? "";
+  if (!text) throw new Error(`Gemini media description returned no text: ${JSON.stringify(responseData)}`);
+  return text;
+}
+
 export async function embedText(text: string): Promise<number[]> {
   const url = `${GEMINI_API_BASE}/models/${config.gemini.embeddingModel}:embedContent?key=${config.gemini.apiKey}`;
   const res = await fetch(url, {

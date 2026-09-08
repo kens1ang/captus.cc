@@ -16,10 +16,14 @@ export interface InboundMessageJob {
   from: string;
   messageId: string;
   receivedAt: string;
-  kind: "text" | "audio" | "unsupported";
+  kind: "text" | "audio" | "image" | "document" | "unsupported";
   text?: string;
   mediaId?: string;
   mimeType?: string;
+  /** Images/documents: the customer's own words attached to the file, which are usually the actual question. */
+  caption?: string;
+  /** Documents only — worth showing the customer we know which file they sent. */
+  filename?: string;
 }
 
 export const inboundQueue = new Queue<InboundMessageJob>(INBOUND_MESSAGE_QUEUE, {

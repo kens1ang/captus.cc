@@ -17,6 +17,8 @@ interface MetaWebhookBody {
           type: string;
           text?: { body: string };
           audio?: { id: string; mime_type: string };
+          image?: { id: string; mime_type: string; caption?: string };
+          document?: { id: string; mime_type: string; filename?: string; caption?: string };
         }>;
       };
     }>;
@@ -111,9 +113,35 @@ export async function webhookRoutes(app: FastifyInstance) {
           { ...base, kind: "audio", mediaId: message.audio.id, mimeType: message.audio.mime_type },
           { jobId: message.id },
         );
+      } else if (message.type === "image" && message.image) {
+        await inboundQueue.add(
+          "inbound",
+          {
+            ...base,
+            kind: "image",
+            mediaId: message.image.id,
+            mimeType: message.image.mime_type,
+            caption: message.image.caption,
+          },
+          { jobId: message.id },
+        );
+      } else if (message.type === "document" && message.document) {
+        await inboundQueue.add(
+          "inbound",
+          {
+            ...base,
+            kind: "document",
+            mediaId: message.document.id,
+            mimeType: message.document.mime_type,
+            filename: message.document.filename,
+            caption: message.document.caption,
+          },
+          { jobId: message.id },
+        );
       } else {
-        // Images, documents, stickers, locations, etc. — not "smart" handling
-        // yet, but never silently dropped (see worker.ts's "unsupported" branch).
+        // Stickers, locations, contacts, etc. — still acknowledged and
+        // escalated rather than silently dropped (worker.ts's "unsupported"
+        // branch). Images and documents used to land here too.
         await inboundQueue.add("inbound", { ...base, kind: "unsupported" }, { jobId: message.id });
       }
     }

@@ -11,7 +11,15 @@ import {
   type ReminderJob,
 } from "./lib/queue.js";
 import { sendTextMessage, sendTypingIndicator, sendTemplateMessage, downloadMedia } from "./lib/whatsapp.js";
-import { runReplyTurn, embedText, transcribeAudio, type ChatTurn } from "./lib/gemini.js";
+import {
+  runReplyTurn,
+  embedText,
+  transcribeAudio,
+  describeMedia,
+  isAnalyzableMedia,
+  MAX_ANALYZABLE_MEDIA_BYTES,
+  type ChatTurn,
+} from "./lib/gemini.js";
 import { buildSystemPrompt } from "./lib/systemPrompt.js";
 import { buildBookingTools, executeBookingTool, BOOKING_TOOL_NAMES } from "./lib/bookingTools.js";
 import { buildDocumentTools, executeDocumentTool, DOCUMENT_TOOL_NAMES } from "./lib/documentTools.js";
@@ -195,6 +203,61 @@ const inboundWorker = new Worker<InboundMessageJob>(
           "Sorry, I couldn't quite make out that voice note (it may have been unclear or silent) — could you try again or send it as a text message? I've flagged this for the team too.",
           "[customer sent a voice note that failed to transcribe]",
           "voice note transcription failed — needs manual review",
+        );
+        return;
+      }
+    } else if (kind === "image" || kind === "document") {
+      if (!job.data.mediaId || !job.data.mimeType) {
+        throw new Error(`${kind} job missing mediaId/mimeType`);
+      }
+      const { mimeType, filename, caption } = job.data;
+      const label = kind === "image" ? "photo" : `file${filename ? ` "${filename}"` : ""}`;
+
+      // Formats Gemini can't read inline (xlsx, docx, archives...) still get
+      // the acknowledge-and-escalate treatment — better an honest "I can't
+      // open that" than a failed analysis mid-pipeline.
+      if (!isAnalyzableMedia(mimeType)) {
+        console.log(`[worker] ${kind} from ${from} has unreadable type ${mimeType} — acknowledging, not dropping`);
+        await acknowledgeAndEscalate(
+          tenantId,
+          from,
+          messageId,
+          waPhoneNumberId,
+          `[${label} — unreadable format: ${mimeType}]`,
+          `Thanks for sending that${filename ? ` (${filename})` : ""} — I can't open that file type. Could you send it as a PDF or an image, or tell me what you need in a message? I've flagged this for the team too.`,
+          `[customer sent a file the assistant can't read: ${mimeType}]`,
+          "unreadable file format — needs manual review",
+        );
+        return;
+      }
+
+      console.log(`[worker] analyzing ${kind} from ${from} (msg ${messageId}, ${mimeType})`);
+      try {
+        const media = await downloadMedia(job.data.mediaId);
+        if (media.data.byteLength > MAX_ANALYZABLE_MEDIA_BYTES) {
+          throw new Error(`media too large to analyze inline (${media.data.byteLength} bytes)`);
+        }
+        const description = await describeMedia(media.data, media.mimeType, filename);
+        // The caption is the customer's own words and usually carries the
+        // actual question ("is this in stock?"), so it leads; the description
+        // rides along as context. Stored as the message content, so history
+        // and the dashboard both show something meaningful rather than
+        // "[unsupported media]".
+        text = caption?.trim()
+          ? `${caption.trim()}\n[sent a ${label} — ${description}]`
+          : `[sent a ${label} — ${description}]`;
+        console.log(`[worker] ${kind} description: "${description}"`);
+      } catch (err) {
+        console.warn(`[worker] ${kind} analysis failed for ${from} (msg ${messageId}):`, err);
+        await acknowledgeAndEscalate(
+          tenantId,
+          from,
+          messageId,
+          waPhoneNumberId,
+          `[${label} — could not be read]`,
+          `Thanks for sending that — I had trouble opening it on my end. Could you try again, or tell me what you need in a message? I've flagged this for the team too.`,
+          `[customer sent a ${label} that couldn't be analyzed]`,
+          `${kind} analysis failed — needs manual review`,
         );
         return;
       }
