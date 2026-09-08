@@ -18,11 +18,16 @@ export function buildBookingTools(services: Service[]): ToolDeclaration[] {
     {
       name: CHECK_AVAILABILITY,
       description:
-        "Looks up real open appointment slots for a service over the next two weeks. ALWAYS call this before offering or booking a time — never guess or invent availability yourself.",
+        "Looks up real open appointment slots for a service. ALWAYS call this before offering or booking a time — never guess or invent availability yourself, and never assume a day is free just because you weren't shown otherwise.",
       parameters: {
         type: "OBJECT",
         properties: {
           service_name: { type: "STRING", description: "Exact service name the customer wants to book.", enum: serviceNames },
+          date: {
+            type: "STRING",
+            description:
+              "The specific date the customer wants, as YYYY-MM-DD in the business's own timezone — resolve relative wording ('tomorrow', 'next Tuesday') yourself using the current date/time given in your instructions. Omit only if the customer hasn't indicated any particular day, in which case you'll get the soonest few openings regardless of date.",
+          },
         },
         required: ["service_name"],
       },
@@ -63,13 +68,17 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
     const service = serviceName ? findService(ctx.services, serviceName) : undefined;
     if (!service) return { error: `Unknown service "${serviceName}". Valid services: ${ctx.services.map((s) => s.name).join(", ")}` };
 
-    const slots = await withTenant(ctx.tenantId, (client) => computeAvailableSlots(client, ctx.tenantId, ctx.timezone, service.durationMinutes));
+    const date = call.args.date as string | undefined;
+    const slots = await withTenant(ctx.tenantId, (client) => computeAvailableSlots(client, ctx.tenantId, ctx.timezone, service.durationMinutes, date));
     return {
       service: service.name,
       duration_minutes: service.durationMinutes,
+      searched_date: date ?? null,
       // Both a machine-usable ISO value (to echo back in book_appointment) and
       // a human label in the tenant's own timezone, so the model doesn't have
       // to do its own timezone math when describing options to the customer.
+      // If these slots fall on a different date than requested, the label
+      // makes that obvious — say so rather than booking the wrong day.
       slots: slots.map((s) => ({ start_iso: s.startISO, label: DateTime.fromISO(s.startISO).setZone(ctx.timezone).toFormat("EEE d LLL, h:mm a") })),
     };
   }

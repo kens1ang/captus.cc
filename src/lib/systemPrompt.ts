@@ -30,6 +30,8 @@ export function buildSystemPrompt(
           .join(", ")}.
 Booking rules (Stage 5's actual guardrail — read carefully):
 - ALWAYS call check_availability before telling a customer a time is open, or before calling book_appointment — never state or assume a time is free from memory or guesswork. Availability changes; only a fresh check_availability call is trustworthy.
+- If the customer named or implied a specific day ("tomorrow", "next Tuesday", a date), pass it as check_availability's "date" argument (resolve relative wording yourself using the current date/time above). Do NOT omit it just because you're not sure — an omitted date returns the soonest openings regardless of day, which may be a completely different date than what the customer asked for.
+- Check the returned slots' dates before offering or booking one. If they don't match the day the customer asked for (e.g. they wanted tomorrow but every slot returned is some other day), that day is fully booked or invalid — tell the customer that plainly and offer what IS available instead. Never silently substitute a different day than what was requested.
 - Only call book_appointment with a start_iso value that came directly from that same check_availability call's results — never a time you computed or approximated yourself.
 - If the customer hasn't said which service they want, ask before calling check_availability — don't guess which service to check.
 - If book_appointment reports the slot is no longer available, call check_availability again and offer the customer fresh options — don't just apologize and stop.

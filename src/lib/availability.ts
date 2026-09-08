@@ -28,12 +28,21 @@ function overlaps(aStart: DateTime, aEnd: DateTime, bStartISO: string, bEndISO: 
  * holidays, anything not made through Captus). If the tenant hasn't
  * connected a calendar, queryFreeBusy just returns [] and this still works
  * off local bookings alone.
+ *
+ * `preferredDate` (YYYY-MM-DD, tenant-local) starts the search from that day
+ * instead of today — without it, a customer asking for "tomorrow" could get
+ * silently handed today's slots instead just because today still had 8+ open
+ * (MAX_SLOTS_RETURNED cutting the search short before ever reaching
+ * tomorrow) — confirmed live: exactly this happened before this was added.
+ * If the preferred day itself has nothing open, the search still continues
+ * into later days as a fallback, same as with no preference at all.
  */
 export async function computeAvailableSlots(
   client: PoolClient,
   tenantId: string,
   timezone: string,
   durationMinutes: number,
+  preferredDate?: string,
 ): Promise<AvailableSlot[]> {
   const hours = await listBusinessHours(client);
   if (hours.length === 0) return [];
@@ -50,7 +59,10 @@ export async function computeAvailableSlots(
   const earliestStart = now.plus({ minutes: MIN_LEAD_TIME_MINUTES });
   const slots: AvailableSlot[] = [];
 
-  for (let dayOffset = 0; dayOffset < SEARCH_DAYS_AHEAD && slots.length < MAX_SLOTS_RETURNED; dayOffset++) {
+  const preferred = preferredDate ? DateTime.fromISO(preferredDate, { zone: timezone }) : null;
+  const startDayOffset = preferred?.isValid ? Math.max(0, Math.floor(preferred.startOf("day").diff(now.startOf("day"), "days").days)) : 0;
+
+  for (let dayOffset = startDayOffset; dayOffset < SEARCH_DAYS_AHEAD && slots.length < MAX_SLOTS_RETURNED; dayOffset++) {
     const day = now.plus({ days: dayOffset }).startOf("day");
     const dayOfWeek = day.weekday % 7; // luxon: 1=Mon..7=Sun -> 0=Sun..6=Sat, matching schema
     const dayIntervals = hours.filter((h) => h.dayOfWeek === dayOfWeek);
