@@ -1,16 +1,20 @@
 import { Worker } from "bullmq";
+import { DateTime } from "luxon";
 import {
   connection,
   INBOUND_MESSAGE_QUEUE,
   REPLY_DEBOUNCE_QUEUE,
   replyDebounceQueue,
+  REMINDER_QUEUE,
   type InboundMessageJob,
   type ReplyDebounceJob,
+  type ReminderJob,
 } from "./lib/queue.js";
-import { sendTextMessage, sendTypingIndicator, downloadMedia } from "./lib/whatsapp.js";
+import { sendTextMessage, sendTypingIndicator, sendTemplateMessage, downloadMedia } from "./lib/whatsapp.js";
 import { runReplyTurn, embedText, transcribeAudio, type ChatTurn } from "./lib/gemini.js";
 import { buildSystemPrompt } from "./lib/systemPrompt.js";
 import { buildBookingTools, executeBookingTool } from "./lib/bookingTools.js";
+import { REMINDER_TEMPLATE_NAME, REMINDER_TEMPLATE_LANGUAGE, reminderBodyParams, reminderPlainText } from "./lib/bookingReminders.js";
 import {
   getOrCreateConversation,
   getRecentMessages,
@@ -21,6 +25,7 @@ import {
 } from "./db/conversations.js";
 import { searchKnowledge } from "./db/knowledge.js";
 import { listServices } from "./db/services.js";
+import { getBookingById, markReminderSent } from "./db/bookings.js";
 import { withTenant } from "./db/tenantContext.js";
 import { getTenantById } from "./db/tenants.js";
 import { notifyEscalation } from "./lib/escalation.js";
@@ -354,7 +359,64 @@ const replyWorker = new Worker<ReplyDebounceJob>(
   { connection },
 );
 
-for (const w of [inboundWorker, replyWorker]) {
+// --- Worker 3: fires once per booking, LEAD_TIME_HOURS before its start
+// (scheduled by lib/bookingReminders.ts at booking time, cancelled on
+// cancel/reschedule). Sends via a pre-approved WhatsApp template, since a
+// reminder this far ahead is almost always outside the 24h customer-service
+// window that plain text messages require. ---
+const reminderWorker = new Worker<ReminderJob>(
+  REMINDER_QUEUE,
+  async (job) => {
+    const { tenantId, bookingId } = job.data;
+
+    const booking = await withTenant(tenantId, (client) => getBookingById(client, bookingId));
+    // Booking gone, or cancelled/rescheduled after this job was already
+    // picked up (cancelReminder can't remove an "active" job) — either way,
+    // nothing to remind about.
+    if (!booking || booking.status !== "confirmed") {
+      console.log(`[worker] skipping reminder for booking ${bookingId} — no longer a confirmed booking`);
+      return;
+    }
+
+    const tenant = await getTenantById(tenantId);
+    if (!tenant) {
+      throw new Error(`Tenant ${tenantId} not found for reminder on booking ${bookingId}`);
+    }
+
+    const start = DateTime.fromISO(booking.startsAt).setZone(tenant.timezone);
+    const end = DateTime.fromISO(booking.endsAt).setZone(tenant.timezone);
+    const formattedRange = `${start.toFormat("EEE d LLL")}, ${start.toFormat("h:mm a")} - ${end.toFormat("h:mm a")}`;
+    const serviceName = booking.serviceName ?? "appointment";
+
+    await sendTemplateMessage(
+      tenant.whatsappPhoneNumberId,
+      booking.contactWaNumber,
+      REMINDER_TEMPLATE_NAME,
+      REMINDER_TEMPLATE_LANGUAGE,
+      reminderBodyParams(serviceName, formattedRange),
+    );
+
+    // Mark sent right after the send succeeds, before anything non-essential
+    // below — the atomic `WHERE reminder_sent_at IS NULL` guard is what
+    // stops a BullMQ retry (if something after this point fails) from
+    // sending the template a second time.
+    const wasFirstSend = await withTenant(tenantId, (client) => markReminderSent(client, bookingId));
+    if (!wasFirstSend) {
+      console.log(`[worker] reminder for booking ${bookingId} was already marked sent — not logging a duplicate message`);
+      return;
+    }
+
+    if (booking.conversationId) {
+      await withTenant(tenantId, async (client) => {
+        await insertMessage(client, tenantId, booking.conversationId!, "out", reminderPlainText(serviceName, formattedRange));
+        await touchConversation(client, booking.conversationId!);
+      });
+    }
+  },
+  { connection },
+);
+
+for (const w of [inboundWorker, replyWorker, reminderWorker]) {
   w.on("completed", (job) => console.log(`[worker] job ${job.id} completed`));
   w.on("failed", (job, err) => console.error(`[worker] job ${job?.id} failed:`, err));
 }

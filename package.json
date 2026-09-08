@@ -14,7 +14,8 @@
     "ingest": "tsx src/scripts/ingest-faq.ts",
     "onboard": "tsx src/scripts/onboard-tenant.ts",
     "link-user": "tsx src/scripts/link-user.ts",
-    "status": "tsx src/scripts/status.ts"
+    "status": "tsx src/scripts/status.ts",
+    "create-reminder-template": "tsx src/scripts/create-reminder-template.ts"
   },
   "dependencies": {
     "@clerk/backend": "^1.18.0",

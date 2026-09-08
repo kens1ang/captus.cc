@@ -17,6 +17,7 @@ import { listServices, createService, deleteService } from "../db/services.js";
 import { listBusinessHours, replaceBusinessHours, type BusinessHoursInterval } from "../db/businessHours.js";
 import { listUpcomingBookings, cancelBooking } from "../db/bookings.js";
 import { deleteCalendarEvent } from "../lib/googleCalendar.js";
+import { cancelReminder } from "../lib/bookingReminders.js";
 
 // Stage 4's "bare dashboard" API: conversation list, thread view + manual
 // reply/resume (human takeover), FAQ list/add/delete. All routes require a
@@ -172,6 +173,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const tenantId = req.dashboardUser!.tenantId;
     const cancelled = await withTenant(tenantId, (client) => cancelBooking(client, req.params.id));
     if (!cancelled) return reply.code(404).send({ error: "Booking not found or already cancelled" });
+    await cancelReminder(cancelled.id);
 
     // Best-effort — the cancellation itself already happened in our DB (the
     // part that actually matters); a Google-side hiccup here shouldn't turn

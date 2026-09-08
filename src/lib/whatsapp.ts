@@ -39,6 +39,45 @@ export async function sendTextMessage(phoneNumberId: string, to: string, body: s
   }
 }
 
+/**
+ * Sends a pre-approved WhatsApp message template — required for any
+ * proactive message (booking reminders, follow-ups) outside the 24h
+ * customer-service window, where a plain text send (sendTextMessage) is
+ * rejected outright by Meta. `bodyParams` fill the template's {{1}}, {{2}}...
+ * placeholders in order.
+ */
+export async function sendTemplateMessage(
+  phoneNumberId: string,
+  to: string,
+  templateName: string,
+  languageCode: string,
+  bodyParams: string[],
+): Promise<void> {
+  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.whatsapp.accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "template",
+      template: {
+        name: templateName,
+        language: { code: languageCode },
+        components: bodyParams.length > 0 ? [{ type: "body", parameters: bodyParams.map((text) => ({ type: "text", text })) }] : undefined,
+      },
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`WhatsApp template send failed (${res.status}): ${errBody}`);
+  }
+}
+
 /** Downloads a media attachment (voice note, image, etc.) by its WhatsApp media id. */
 export async function downloadMedia(mediaId: string): Promise<{ data: Buffer; mimeType: string }> {
   const metaRes = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${mediaId}`, {

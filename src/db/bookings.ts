@@ -133,6 +133,12 @@ export async function getBookingById(client: PoolClient, id: string): Promise<Bo
   return result.rows[0] ? toBooking(result.rows[0]) : null;
 }
 
+/** Idempotency guard for the reminder worker: returns false if a reminder was already recorded (so a BullMQ retry after a successful send doesn't double-send). */
+export async function markReminderSent(client: PoolClient, id: string): Promise<boolean> {
+  const result = await client.query(`UPDATE bookings SET reminder_sent_at = now() WHERE id = $1 AND reminder_sent_at IS NULL`, [id]);
+  return (result.rowCount ?? 0) > 0;
+}
+
 /** Returns the booking as it was before cancelling (so the caller can still delete its Google Calendar event), or null if not found/already cancelled. */
 export async function cancelBooking(client: PoolClient, id: string): Promise<Booking | null> {
   const existing = await getBookingById(client, id);

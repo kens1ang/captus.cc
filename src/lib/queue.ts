@@ -52,3 +52,27 @@ export const replyDebounceQueue = new Queue<ReplyDebounceJob>(REPLY_DEBOUNCE_QUE
     removeOnFail: 1000,
   },
 });
+
+// --- Queue 3: booking reminders. One delayed job per booking (jobId =
+// booking id), scheduled at booking time and fired a fixed lead time before
+// the appointment. Cancelling/rescheduling a booking removes its job — see
+// lib/bookingReminders.ts, the one place jobs on this queue are added/removed. ---
+export const REMINDER_QUEUE = "booking-reminders";
+
+export interface ReminderJob {
+  tenantId: string;
+  bookingId: string;
+}
+
+export const reminderQueue = new Queue<ReminderJob>(REMINDER_QUEUE, {
+  connection,
+  defaultJobOptions: {
+    // A few more attempts than the other queues, with longer backoff — if a
+    // reminder fires right as the WhatsApp template is still pending Meta's
+    // approval, it's worth a few slower retries rather than giving up fast.
+    attempts: 5,
+    backoff: { type: "exponential", delay: 60_000 },
+    removeOnComplete: 1000,
+    removeOnFail: 1000,
+  },
+});

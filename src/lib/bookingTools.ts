@@ -5,6 +5,7 @@ import { withTenant } from "../db/tenantContext.js";
 import { computeAvailableSlots, isSlotAvailable } from "./availability.js";
 import { createBooking, getBookingById, cancelBooking, listUpcomingBookingsForContact, type Booking } from "../db/bookings.js";
 import { createCalendarEvent, deleteCalendarEvent } from "./googleCalendar.js";
+import { scheduleReminder, cancelReminder } from "./bookingReminders.js";
 
 const CHECK_AVAILABILITY = "check_availability";
 const BOOK_APPOINTMENT = "book_appointment";
@@ -118,7 +119,7 @@ async function createConfirmedBooking(
     endISO,
     timezone: ctx.timezone,
   });
-  return withTenant(ctx.tenantId, (client) =>
+  const booking = await withTenant(ctx.tenantId, (client) =>
     createBooking(client, ctx.tenantId, {
       conversationId: ctx.conversationId,
       serviceId: service.id,
@@ -129,6 +130,8 @@ async function createConfirmedBooking(
       googleEventId,
     }),
   );
+  await scheduleReminder(ctx.tenantId, booking.id, startISO);
+  return booking;
 }
 
 /**
@@ -205,6 +208,7 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
 
     const cancelled = await withTenant(ctx.tenantId, (client) => cancelBooking(client, booking.id));
     if (!cancelled) return { success: false, error: "That booking was already cancelled." };
+    await cancelReminder(cancelled.id);
     if (cancelled.googleEventId) {
       try {
         await deleteCalendarEvent(ctx.tenantId, cancelled.googleEventId);
@@ -239,6 +243,7 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
     }
 
     const cancelled = await withTenant(ctx.tenantId, (client) => cancelBooking(client, existing.id));
+    if (cancelled) await cancelReminder(cancelled.id);
     if (cancelled?.googleEventId) {
       try {
         await deleteCalendarEvent(ctx.tenantId, cancelled.googleEventId);
