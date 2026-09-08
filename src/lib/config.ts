@@ -62,6 +62,12 @@ export const config = {
     },
   },
   dashboardOrigin: process.env.DASHBOARD_ORIGIN ?? "http://localhost:3001",
+  // Stage 5: documents (menus, catalogs, price lists). The backend's own
+  // public URL, needed to build a link Meta's servers can fetch a document
+  // from when the bot sends one (routes/files.ts, lib/documentTools.ts) —
+  // not derivable from the request itself since that link is generated
+  // ahead of time, outside any HTTP request context.
+  backendPublicUrl: process.env.BACKEND_PUBLIC_URL ?? `http://localhost:${Number(process.env.PORT ?? 3000)}`,
   // Stage 5: booking. Google OAuth (per-tenant "connect your calendar" flow,
   // routes/googleAuth.ts) + the key used to encrypt stored refresh tokens
   // (lib/crypto.ts) — a refresh token is a long-lived credential to a real

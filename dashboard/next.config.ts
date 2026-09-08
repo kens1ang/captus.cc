@@ -8,6 +8,14 @@ const nextConfig: NextConfig = {
   turbopack: {
     root: path.join(__dirname),
   },
+  // Default 1MB is too small for document uploads (Settings > Documents) —
+  // a menu/catalog PDF or spreadsheet easily exceeds that. Matches the
+  // backend's own raised Fastify bodyLimit (server.ts) for the same reason.
+  experimental: {
+    serverActions: {
+      bodySizeLimit: "15mb",
+    },
+  },
 };
 
 export default nextConfig;

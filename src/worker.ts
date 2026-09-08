@@ -13,8 +13,10 @@ import {
 import { sendTextMessage, sendTypingIndicator, sendTemplateMessage, downloadMedia } from "./lib/whatsapp.js";
 import { runReplyTurn, embedText, transcribeAudio, type ChatTurn } from "./lib/gemini.js";
 import { buildSystemPrompt } from "./lib/systemPrompt.js";
-import { buildBookingTools, executeBookingTool } from "./lib/bookingTools.js";
+import { buildBookingTools, executeBookingTool, BOOKING_TOOL_NAMES } from "./lib/bookingTools.js";
+import { buildDocumentTools, executeDocumentTool, DOCUMENT_TOOL_NAMES } from "./lib/documentTools.js";
 import { REMINDER_TEMPLATE_NAME, REMINDER_TEMPLATE_LANGUAGE, reminderBodyParams, reminderPlainText } from "./lib/bookingReminders.js";
+import type { ToolCall } from "./lib/gemini.js";
 import {
   getOrCreateConversation,
   getRecentMessages,
@@ -25,6 +27,7 @@ import {
 } from "./db/conversations.js";
 import { searchKnowledge } from "./db/knowledge.js";
 import { listServices } from "./db/services.js";
+import { listDocuments } from "./db/documents.js";
 import { getBookingById, markReminderSent } from "./db/bookings.js";
 import { withTenant } from "./db/tenantContext.js";
 import { getTenantById } from "./db/tenants.js";
@@ -258,10 +261,12 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       // History already contains each buffered message as its own turn (inserted by worker 1),
       // so the model sees them as sequential user turns rather than one flattened blob.
       const history = await getRecentMessages(client, conversationId, HISTORY_LIMIT);
-      // Stage 5: services this tenant can be booked for — [] for an
-      // FAQ-only tenant, which keeps the reply agent's tool list empty too.
+      // Stage 5: services this tenant can be booked for, and documents it
+      // can send — [] for a tenant with neither, which keeps the reply
+      // agent's tool list exactly as before (FAQ-only).
       const services = await listServices(client);
-      return { skip: false as const, conversationId, history, services };
+      const documents = await listDocuments(client);
+      return { skip: false as const, conversationId, history, services, documents };
     });
 
     if (convoState.skip) {
@@ -270,7 +275,7 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       return;
     }
 
-    const { conversationId, history, services } = convoState;
+    const { conversationId, history, services, documents } = convoState;
 
     // Show typing as soon as we know we're actually going to reply (not
     // right before send) — that's the whole point of it masking LLM latency.
@@ -286,6 +291,7 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       knowledge.map((k) => k.content),
       tenant.timezone,
       services,
+      documents,
     );
 
     const chatHistory: ChatTurn[] = history.map((m) => ({
@@ -293,10 +299,20 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       text: m.content,
     }));
 
-    const bookingTools = buildBookingTools(services);
-    const result = await runReplyTurn(systemPrompt, chatHistory, bookingTools, (call) =>
-      executeBookingTool({ tenantId, timezone: tenant.timezone, services, conversationId, contactWaNumber: from }, call),
-    );
+    // Combined tool palette — each family's own module owns executing its
+    // own tool calls; this is just the dispatch between them by name, so
+    // neither module needs to know the other exists.
+    const actionTools = [...buildBookingTools(services), ...buildDocumentTools(documents)];
+    const executeTool = (call: ToolCall): Promise<unknown> => {
+      if (BOOKING_TOOL_NAMES.includes(call.name)) {
+        return executeBookingTool({ tenantId, timezone: tenant.timezone, services, conversationId, contactWaNumber: from }, call);
+      }
+      if (DOCUMENT_TOOL_NAMES.includes(call.name)) {
+        return executeDocumentTool({ tenantId, waPhoneNumberId, contactWaNumber: from, documents }, call);
+      }
+      return Promise.resolve({ error: `Unknown tool "${call.name}"` });
+    };
+    const result = await runReplyTurn(systemPrompt, chatHistory, actionTools, executeTool);
 
     // Deliberately NOT persisted yet — see below. If sendTextMessage throws
     // (e.g. WhatsApp/Meta-side rejection), a message recorded here would

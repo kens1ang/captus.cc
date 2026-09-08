@@ -40,6 +40,33 @@ export async function sendTextMessage(phoneNumberId: string, to: string, body: s
 }
 
 /**
+ * Sends a document (PDF, image, spreadsheet, etc.) by public link — Meta's
+ * servers fetch `link` themselves rather than us uploading bytes here, so
+ * it must be reachable over plain HTTPS with no auth (routes/files.ts).
+ */
+export async function sendDocumentMessage(phoneNumberId: string, to: string, link: string, filename: string, caption?: string): Promise<void> {
+  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${config.whatsapp.accessToken}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      messaging_product: "whatsapp",
+      to,
+      type: "document",
+      document: { link, filename, caption },
+    }),
+  });
+
+  if (!res.ok) {
+    const errBody = await res.text();
+    throw new Error(`WhatsApp document send failed (${res.status}): ${errBody}`);
+  }
+}
+
+/**
  * Sends a pre-approved WhatsApp message template — required for any
  * proactive message (booking reminders, follow-ups) outside the 24h
  * customer-service window, where a plain text send (sendTextMessage) is

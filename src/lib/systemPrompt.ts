@@ -1,5 +1,6 @@
 import { DateTime } from "luxon";
 import type { Service } from "../db/services.js";
+import type { DocumentSummary } from "../db/documents.js";
 
 // Stage 3: business identity is per-tenant (from the tenants table), not a
 // static import — see db/tenants.ts.
@@ -9,6 +10,7 @@ export function buildSystemPrompt(
   knowledgeChunks: string[],
   timezone: string,
   services: Service[],
+  documents: DocumentSummary[],
 ): string {
   const knowledgeSection =
     knowledgeChunks.length > 0
@@ -42,12 +44,20 @@ Booking rules (Stage 5's actual guardrail — read carefully):
 - Tool results give you a full start–end time range (e.g. "2:30 - 3:00 PM") for every slot and booking — always relay the full range to the customer, not just the start time, so they know exactly how long to block out.`
       : "";
 
+  const documentsSection =
+    documents.length > 0
+      ? `\n\nFiles you can send this customer on request: ${documents
+          .map((d) => `"${d.name}"${d.description ? ` (${d.description})` : ""}`)
+          .join(", ")}.
+Call send_document when the customer asks for one of these by name, or clearly implies wanting one (e.g. "do you have a menu?", "send me your catalog") — don't just describe the file in text when you could send the actual thing. If none of the available documents match what they're asking for, say so honestly rather than sending the closest guess.`
+      : "";
+
   return `You are a helpful WhatsApp customer support assistant for ${businessName}.
 ${businessDescription}
 
 ${currentTimeSection}
 
-${knowledgeSection}${bookingSection}
+${knowledgeSection}${bookingSection}${documentsSection}
 
 You must always finish your turn by calling the respond_to_customer tool — that is the only way your reply actually reaches the customer. Its fields:
 - "reply": the message to send back to the customer on WhatsApp.

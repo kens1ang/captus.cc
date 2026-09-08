@@ -18,6 +18,7 @@ import { listBusinessHours, replaceBusinessHours, type BusinessHoursInterval } f
 import { listUpcomingBookings, cancelBooking } from "../db/bookings.js";
 import { deleteCalendarEvent } from "../lib/googleCalendar.js";
 import { cancelReminder } from "../lib/bookingReminders.js";
+import { listDocuments, createDocument, deleteDocument } from "../db/documents.js";
 
 // Stage 4's "bare dashboard" API: conversation list, thread view + manual
 // reply/resume (human takeover), FAQ list/add/delete. All routes require a
@@ -205,6 +206,41 @@ export async function dashboardRoutes(app: FastifyInstance) {
       }
     }
 
+    return { ok: true };
+  });
+
+  // --- Documents (menus, catalogs, price lists) the bot can send on request ---
+
+  app.get("/api/documents", async (req) => {
+    const tenantId = req.dashboardUser!.tenantId;
+    return withTenant(tenantId, (client) => listDocuments(client));
+  });
+
+  app.post<{ Body: { name: string; description?: string; filename: string; mimeType: string; fileDataBase64: string } }>(
+    "/api/documents",
+    async (req, reply) => {
+      const tenantId = req.dashboardUser!.tenantId;
+      const { name, description, filename, mimeType, fileDataBase64 } = req.body ?? ({} as never);
+      if (!name?.trim() || !filename?.trim() || !mimeType?.trim() || !fileDataBase64) {
+        return reply.code(400).send({ error: "name, filename, mimeType, and fileDataBase64 are required" });
+      }
+      const document = await withTenant(tenantId, (client) =>
+        createDocument(client, tenantId, {
+          name: name.trim(),
+          description: description?.trim() || null,
+          filename: filename.trim(),
+          mimeType: mimeType.trim(),
+          fileData: Buffer.from(fileDataBase64, "base64"),
+        }),
+      );
+      return reply.code(201).send(document);
+    },
+  );
+
+  app.delete<{ Params: { id: string } }>("/api/documents/:id", async (req, reply) => {
+    const tenantId = req.dashboardUser!.tenantId;
+    const deleted = await withTenant(tenantId, (client) => deleteDocument(client, req.params.id));
+    if (!deleted) return reply.code(404).send({ error: "Document not found" });
     return { ok: true };
   });
 }

@@ -5,6 +5,7 @@ import { webhookRoutes } from "./routes/webhook.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import { adminRoutes } from "./routes/admin.js";
 import { googleAuthRoutes } from "./routes/googleAuth.js";
+import { fileRoutes } from "./routes/files.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -13,7 +14,11 @@ declare module "fastify" {
 }
 
 async function main() {
-  const app = Fastify({ logger: true });
+  // Default 1MB body limit is too small for document uploads (base64-encoded
+  // in JSON — see routes/dashboard.ts's POST /api/documents), which inflates
+  // a file's real size by ~33%. 15MB comfortably covers a typical menu/
+  // catalog PDF or spreadsheet at SME scale.
+  const app = Fastify({ logger: true, bodyLimit: 15 * 1024 * 1024 });
 
   // Keep the raw body around for HMAC signature verification, in addition to the parsed JSON.
   app.addContentTypeParser("application/json", { parseAs: "buffer" }, (req, body, done) => {
@@ -36,6 +41,7 @@ async function main() {
   await app.register(dashboardRoutes);
   await app.register(adminRoutes);
   await app.register(googleAuthRoutes);
+  await app.register(fileRoutes);
 
   await app.listen({ port: config.port, host: "0.0.0.0" });
 }

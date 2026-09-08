@@ -13,6 +13,16 @@ const LIST_MY_BOOKINGS = "list_my_bookings";
 const CANCEL_APPOINTMENT = "cancel_appointment";
 const RESCHEDULE_APPOINTMENT = "reschedule_appointment";
 
+// So worker.ts can route a tool call to the right executor (this module vs.
+// documentTools.ts) without either module needing to know about the other.
+export const BOOKING_TOOL_NAMES: readonly string[] = [
+  CHECK_AVAILABILITY,
+  BOOK_APPOINTMENT,
+  LIST_MY_BOOKINGS,
+  CANCEL_APPOINTMENT,
+  RESCHEDULE_APPOINTMENT,
+];
+
 /** [] for a tenant with no services configured — the model then never sees these tools at all (worker.ts merges this into runReplyTurn's actionTools). */
 export function buildBookingTools(services: Service[]): ToolDeclaration[] {
   if (services.length === 0) return [];

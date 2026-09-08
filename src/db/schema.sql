@@ -164,3 +164,25 @@ CREATE TABLE IF NOT EXISTS bookings (
 );
 ALTER TABLE bookings ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES tenants(id);
 CREATE INDEX IF NOT EXISTS bookings_tenant_starts_idx ON bookings (tenant_id, starts_at);
+
+-- Files a tenant wants the bot able to send on request (menus, catalogs,
+-- price lists — PDF, images, spreadsheets, anything WhatsApp documents
+-- support). Stored as bytea directly in Postgres rather than a separate
+-- object store — plenty fine at SME scale (a handful of files, each
+-- typically under a few MB), same "don't add infra you don't need yet"
+-- call as pgvector's brute-force search. Served publicly (routes/files.ts,
+-- unauthenticated — Meta's servers fetch it, not a logged-in dashboard user)
+-- via /files/:tenantId/:documentId, which is why RLS here matters just as
+-- much as anywhere else: the tenant_id in that URL is what scopes the query.
+CREATE TABLE IF NOT EXISTS documents (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid REFERENCES tenants(id),
+  name text NOT NULL, -- short label the model picks from, e.g. "Menu", "Price List"
+  description text,
+  filename text NOT NULL, -- original filename incl. extension, sent as WhatsApp's document filename
+  mime_type text NOT NULL,
+  file_data bytea NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE documents ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES tenants(id);
+CREATE INDEX IF NOT EXISTS documents_tenant_idx ON documents (tenant_id);
