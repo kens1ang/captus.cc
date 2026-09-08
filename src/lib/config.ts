@@ -62,6 +62,24 @@ export const config = {
     },
   },
   dashboardOrigin: process.env.DASHBOARD_ORIGIN ?? "http://localhost:3001",
+  // Stage 5: booking. Google OAuth (per-tenant "connect your calendar" flow,
+  // routes/googleAuth.ts) + the key used to encrypt stored refresh tokens
+  // (lib/crypto.ts) — a refresh token is a long-lived credential to a real
+  // client's calendar, never stored in plaintext.
+  google: {
+    get clientId() {
+      return required("GOOGLE_CLIENT_ID");
+    },
+    get clientSecret() {
+      return required("GOOGLE_CLIENT_SECRET");
+    },
+    get redirectUri() {
+      return required("GOOGLE_REDIRECT_URI");
+    },
+  },
+  get tokenEncryptionKey() {
+    return required("TOKEN_ENCRYPTION_KEY");
+  },
   // Stage 2: where to send a WhatsApp ping when a conversation needs a human.
   // Optional — if unset, escalations are just logged, not sent anywhere.
   ownerNotifyNumber: process.env.OWNER_NOTIFY_NUMBER || undefined,

@@ -8,8 +8,9 @@ import {
   type ReplyDebounceJob,
 } from "./lib/queue.js";
 import { sendTextMessage, sendTypingIndicator, downloadMedia } from "./lib/whatsapp.js";
-import { generateReply, embedText, transcribeAudio, type ChatTurn } from "./lib/gemini.js";
+import { runReplyTurn, embedText, transcribeAudio, type ChatTurn } from "./lib/gemini.js";
 import { buildSystemPrompt } from "./lib/systemPrompt.js";
+import { buildBookingTools, executeBookingTool } from "./lib/bookingTools.js";
 import {
   getOrCreateConversation,
   getRecentMessages,
@@ -19,6 +20,7 @@ import {
   setConversationStatus,
 } from "./db/conversations.js";
 import { searchKnowledge } from "./db/knowledge.js";
+import { listServices } from "./db/services.js";
 import { withTenant } from "./db/tenantContext.js";
 import { getTenantById } from "./db/tenants.js";
 import { notifyEscalation } from "./lib/escalation.js";
@@ -251,7 +253,10 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       // History already contains each buffered message as its own turn (inserted by worker 1),
       // so the model sees them as sequential user turns rather than one flattened blob.
       const history = await getRecentMessages(client, conversationId, HISTORY_LIMIT);
-      return { skip: false as const, conversationId, history };
+      // Stage 5: services this tenant can be booked for — [] for an
+      // FAQ-only tenant, which keeps the reply agent's tool list empty too.
+      const services = await listServices(client);
+      return { skip: false as const, conversationId, history, services };
     });
 
     if (convoState.skip) {
@@ -260,7 +265,7 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       return;
     }
 
-    const { conversationId, history } = convoState;
+    const { conversationId, history, services } = convoState;
 
     // Show typing as soon as we know we're actually going to reply (not
     // right before send) — that's the whole point of it masking LLM latency.
@@ -270,14 +275,23 @@ const replyWorker = new Worker<ReplyDebounceJob>(
     // fragment) for RAG lookup — no DB connection held during this network call.
     const queryEmbedding = await embedText(combinedText);
     const knowledge = await withTenant(tenantId, (client) => searchKnowledge(client, queryEmbedding, RAG_TOP_K));
-    const systemPrompt = buildSystemPrompt(tenant.businessName, tenant.businessDescription, knowledge.map((k) => k.content));
+    const systemPrompt = buildSystemPrompt(
+      tenant.businessName,
+      tenant.businessDescription,
+      knowledge.map((k) => k.content),
+      tenant.timezone,
+      services,
+    );
 
     const chatHistory: ChatTurn[] = history.map((m) => ({
       role: m.direction === "in" ? "user" : "model",
       text: m.content,
     }));
 
-    const result = await generateReply(systemPrompt, chatHistory);
+    const bookingTools = buildBookingTools(services);
+    const result = await runReplyTurn(systemPrompt, chatHistory, bookingTools, (call) =>
+      executeBookingTool({ tenantId, timezone: tenant.timezone, services, conversationId, contactWaNumber: from }, call),
+    );
 
     // Deliberately NOT persisted yet — see below. If sendTextMessage throws
     // (e.g. WhatsApp/Meta-side rejection), a message recorded here would
@@ -286,13 +300,46 @@ const replyWorker = new Worker<ReplyDebounceJob>(
     // would then end on a "model" turn instead of "user" — Gemini rejects
     // that outright, turning one WhatsApp-side failure into a second,
     // unrelated one that eats the rest of the retry budget.
-    await sendTextMessage(waPhoneNumberId, from, result.reply);
+    try {
+      await sendTextMessage(waPhoneNumberId, from, result.reply);
+    } catch (err) {
+      if (result.toolCalls.length > 0) {
+        // A booking tool already made a REAL side effect this turn (a
+        // Google Calendar event + a local bookings row) before the send
+        // failed. Rethrowing would let BullMQ retry this whole job from the
+        // top — re-running the LLM/tools from scratch and risking a genuine
+        // duplicate booking, not just a duplicate reply. That's strictly
+        // worse than an unconfirmed-by-text booking, so don't retry: record
+        // what happened, escalate to a human to confirm with the customer
+        // directly, and let the job succeed instead of throwing.
+        console.error(
+          `[worker] booking tool(s) succeeded but confirmation send failed for ${from} — not retrying (would risk a duplicate booking):`,
+          err,
+        );
+        await connection.del(bufferKey(from));
+        await withTenant(tenantId, async (client) => {
+          await insertMessage(client, tenantId, conversationId, "out", result.reply, undefined, result.toolCalls);
+          await touchConversation(client, conversationId);
+          await setConversationStatus(client, conversationId, "needs_human");
+        });
+        await notifyEscalation(
+          waPhoneNumberId,
+          from,
+          combinedText,
+          "booking was confirmed but WhatsApp send failed — please follow up with the customer directly",
+        );
+        return;
+      }
+      // No external side effect happened (plain FAQ turn) — safe to let
+      // BullMQ retry the whole job, same as before.
+      throw err;
+    }
     await connection.del(bufferKey(from)); // only clear once the reply has actually gone out
 
     // Only record the reply (and any state it implies) once it's actually
     // out the door — see the comment above.
     await withTenant(tenantId, async (client) => {
-      await insertMessage(client, tenantId, conversationId, "out", result.reply);
+      await insertMessage(client, tenantId, conversationId, "out", result.reply, undefined, result.toolCalls);
       await touchConversation(client, conversationId);
       if (result.escalate) {
         await setConversationStatus(client, conversationId, "needs_human");

@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { requireDashboardAuth } from "../lib/clerkAuth.js";
 import { withTenant } from "../db/tenantContext.js";
-import { getTenantById } from "../db/tenants.js";
+import { getTenantById, updateTenantTimezone } from "../db/tenants.js";
 import { sendTextMessage } from "../lib/whatsapp.js";
 import { ingestKnowledgeText } from "../lib/knowledgeIngest.js";
 import {
@@ -13,6 +13,10 @@ import {
   touchConversation,
 } from "../db/conversations.js";
 import { listKnowledgeChunks, deleteKnowledgeChunk } from "../db/knowledge.js";
+import { listServices, createService, deleteService } from "../db/services.js";
+import { listBusinessHours, replaceBusinessHours, type BusinessHoursInterval } from "../db/businessHours.js";
+import { listUpcomingBookings, cancelBooking } from "../db/bookings.js";
+import { deleteCalendarEvent } from "../lib/googleCalendar.js";
 
 // Stage 4's "bare dashboard" API: conversation list, thread view + manual
 // reply/resume (human takeover), FAQ list/add/delete. All routes require a
@@ -105,6 +109,72 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const tenantId = req.dashboardUser!.tenantId;
     const deleted = await withTenant(tenantId, (client) => deleteKnowledgeChunk(client, req.params.id));
     if (!deleted) return reply.code(404).send({ error: "Chunk not found" });
+    return { ok: true };
+  });
+
+  // --- Stage 5: booking settings (services, business hours) + bookings list ---
+
+  app.get("/api/settings", async (req) => {
+    const tenant = await getTenantById(req.dashboardUser!.tenantId);
+    return { timezone: tenant?.timezone ?? "Asia/Singapore" };
+  });
+
+  app.put<{ Body: { timezone: string } }>("/api/settings", async (req, reply) => {
+    const timezone = req.body?.timezone?.trim();
+    if (!timezone) return reply.code(400).send({ error: "timezone is required" });
+    await updateTenantTimezone(req.dashboardUser!.tenantId, timezone);
+    return { ok: true };
+  });
+
+  app.get("/api/services", async (req) => {
+    const tenantId = req.dashboardUser!.tenantId;
+    return withTenant(tenantId, (client) => listServices(client));
+  });
+
+  app.post<{ Body: { name: string; durationMinutes: number } }>("/api/services", async (req, reply) => {
+    const tenantId = req.dashboardUser!.tenantId;
+    const name = req.body?.name?.trim();
+    const durationMinutes = Number(req.body?.durationMinutes);
+    if (!name || !Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+      return reply.code(400).send({ error: "name and a positive durationMinutes are required" });
+    }
+    const service = await withTenant(tenantId, (client) => createService(client, tenantId, name, durationMinutes));
+    return service;
+  });
+
+  app.delete<{ Params: { id: string } }>("/api/services/:id", async (req, reply) => {
+    const tenantId = req.dashboardUser!.tenantId;
+    const deleted = await withTenant(tenantId, (client) => deleteService(client, req.params.id));
+    if (!deleted) return reply.code(404).send({ error: "Service not found" });
+    return { ok: true };
+  });
+
+  app.get("/api/business-hours", async (req) => {
+    const tenantId = req.dashboardUser!.tenantId;
+    return withTenant(tenantId, (client) => listBusinessHours(client));
+  });
+
+  // Replaces the whole week at once — see db/businessHours.ts for why.
+  app.put<{ Body: { intervals: BusinessHoursInterval[] } }>("/api/business-hours", async (req, reply) => {
+    const tenantId = req.dashboardUser!.tenantId;
+    const intervals = req.body?.intervals;
+    if (!Array.isArray(intervals)) return reply.code(400).send({ error: "intervals array is required" });
+    await withTenant(tenantId, (client) => replaceBusinessHours(client, tenantId, intervals));
+    return { ok: true };
+  });
+
+  app.get("/api/bookings", async (req) => {
+    const tenantId = req.dashboardUser!.tenantId;
+    return withTenant(tenantId, (client) => listUpcomingBookings(client));
+  });
+
+  app.post<{ Params: { id: string } }>("/api/bookings/:id/cancel", async (req, reply) => {
+    const tenantId = req.dashboardUser!.tenantId;
+    const cancelled = await withTenant(tenantId, (client) => cancelBooking(client, req.params.id));
+    if (!cancelled) return reply.code(404).send({ error: "Booking not found or already cancelled" });
+    if (cancelled.googleEventId) {
+      await deleteCalendarEvent(tenantId, cancelled.googleEventId);
+    }
     return { ok: true };
   });
 }

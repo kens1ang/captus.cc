@@ -8,6 +8,7 @@ export interface Tenant {
   businessName: string;
   businessDescription: string;
   whatsappPhoneNumberId: string;
+  timezone: string;
 }
 
 interface TenantRow {
@@ -15,6 +16,7 @@ interface TenantRow {
   business_name: string;
   business_description: string;
   whatsapp_phone_number_id: string;
+  timezone: string;
 }
 
 function toTenant(row: TenantRow): Tenant {
@@ -23,10 +25,11 @@ function toTenant(row: TenantRow): Tenant {
     businessName: row.business_name,
     businessDescription: row.business_description,
     whatsappPhoneNumberId: row.whatsapp_phone_number_id,
+    timezone: row.timezone,
   };
 }
 
-const SELECT_COLUMNS = "id, business_name, business_description, whatsapp_phone_number_id";
+const SELECT_COLUMNS = "id, business_name, business_description, whatsapp_phone_number_id, timezone";
 
 export async function getTenantById(id: string): Promise<Tenant | null> {
   const result = await pool.query<TenantRow>(`SELECT ${SELECT_COLUMNS} FROM tenants WHERE id = $1`, [id]);
@@ -53,6 +56,14 @@ export async function createTenant(input: {
     [input.businessName, input.businessDescription, input.whatsappPhoneNumberId],
   );
   return toTenant(result.rows[0]);
+}
+
+export async function updateTenantTimezone(id: string, timezone: string): Promise<Tenant | null> {
+  const result = await pool.query<TenantRow>(`UPDATE tenants SET timezone = $2 WHERE id = $1 RETURNING ${SELECT_COLUMNS}`, [
+    id,
+    timezone,
+  ]);
+  return result.rows[0] ? toTenant(result.rows[0]) : null;
 }
 
 export async function listTenants(): Promise<Tenant[]> {

@@ -44,6 +44,8 @@ export default async function RootLayout({ children }: LayoutProps<"/">) {
               <nav className="flex gap-4 text-sm font-medium">
                 <Link href="/">Conversations</Link>
                 <Link href="/knowledge">Knowledge base</Link>
+                <Link href="/bookings">Bookings</Link>
+                <Link href="/settings">Settings</Link>
                 {isAdmin && <Link href="/admin">Admin</Link>}
               </nav>
               <UserButton />

@@ -4,6 +4,7 @@ import { config } from "./lib/config.js";
 import { webhookRoutes } from "./routes/webhook.js";
 import { dashboardRoutes } from "./routes/dashboard.js";
 import { adminRoutes } from "./routes/admin.js";
+import { googleAuthRoutes } from "./routes/googleAuth.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -34,6 +35,7 @@ async function main() {
   await app.register(webhookRoutes);
   await app.register(dashboardRoutes);
   await app.register(adminRoutes);
+  await app.register(googleAuthRoutes);
 
   await app.listen({ port: config.port, host: "0.0.0.0" });
 }

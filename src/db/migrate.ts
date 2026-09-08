@@ -23,7 +23,15 @@ function quoteIdent(value: string): string {
 // Run once schema.sql has created tenant_id columns and every pre-Stage-3 row
 // has been backfilled onto a real tenant — enabling this any earlier would
 // have FORCE RLS blocking the backfill itself (app.tenant_id isn't set yet).
-const ENABLE_RLS_SQL = ["conversations", "messages", "knowledge_chunks"]
+const ENABLE_RLS_SQL = [
+  "conversations",
+  "messages",
+  "knowledge_chunks",
+  "services",
+  "business_hours",
+  "bookings",
+  "google_calendar_connections",
+]
   .map(
     (table) => `
 ALTER TABLE ${table} ENABLE ROW LEVEL SECURITY;
@@ -60,7 +68,10 @@ async function main() {
   const dbName = dbRows[0].current_database;
   await pool.query(`GRANT CONNECT ON DATABASE ${quoteIdent(dbName)} TO captus_app`);
   await pool.query(`GRANT USAGE ON SCHEMA public TO captus_app`);
-  await pool.query(`GRANT SELECT, INSERT, UPDATE, DELETE ON tenants, users, conversations, messages, knowledge_chunks TO captus_app`);
+  await pool.query(
+    `GRANT SELECT, INSERT, UPDATE, DELETE ON tenants, users, conversations, messages, knowledge_chunks,
+     services, business_hours, bookings, google_calendar_connections TO captus_app`,
+  );
   console.log("Granted captus_app the privileges it needs on tenant-scoped tables.");
 
   // Stage 3 bootstrap: ensure a default tenant exists (from env) and backfill

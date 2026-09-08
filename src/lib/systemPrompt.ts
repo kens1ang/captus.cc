@@ -1,6 +1,15 @@
+import { DateTime } from "luxon";
+import type { Service } from "../db/services.js";
+
 // Stage 3: business identity is per-tenant (from the tenants table), not a
 // static import — see db/tenants.ts.
-export function buildSystemPrompt(businessName: string, businessDescription: string, knowledgeChunks: string[]): string {
+export function buildSystemPrompt(
+  businessName: string,
+  businessDescription: string,
+  knowledgeChunks: string[],
+  timezone: string,
+  services: Service[],
+): string {
   const knowledgeSection =
     knowledgeChunks.length > 0
       ? `Relevant information from the business's knowledge base:\n${knowledgeChunks
@@ -8,12 +17,33 @@ export function buildSystemPrompt(businessName: string, businessDescription: str
           .join("\n\n")}`
       : "No knowledge base entries matched this question.";
 
+  // The model has no innate sense of "now" — needed both for ordinary hours
+  // questions ("are you open right now?") and, once services exist, for
+  // interpreting relative dates ("next Tuesday", "tomorrow afternoon").
+  const now = DateTime.now().setZone(timezone);
+  const currentTimeSection = `Current date/time for ${businessName}: ${now.toFormat("EEEE d LLLL yyyy, h:mm a")} (${timezone}).`;
+
+  const bookingSection =
+    services.length > 0
+      ? `\n\nThis business takes appointment bookings. Available services: ${services
+          .map((s) => `"${s.name}" (${s.durationMinutes} min)`)
+          .join(", ")}.
+Booking rules (Stage 5's actual guardrail — read carefully):
+- ALWAYS call check_availability before telling a customer a time is open, or before calling book_appointment — never state or assume a time is free from memory or guesswork. Availability changes; only a fresh check_availability call is trustworthy.
+- Only call book_appointment with a start_iso value that came directly from that same check_availability call's results — never a time you computed or approximated yourself.
+- If the customer hasn't said which service they want, ask before calling check_availability — don't guess which service to check.
+- If book_appointment reports the slot is no longer available, call check_availability again and offer the customer fresh options — don't just apologize and stop.
+- After a successful booking, confirm the exact confirmed time back to the customer in "reply".`
+      : "";
+
   return `You are a helpful WhatsApp customer support assistant for ${businessName}.
 ${businessDescription}
 
-${knowledgeSection}
+${currentTimeSection}
 
-Respond with a JSON object with these fields:
+${knowledgeSection}${bookingSection}
+
+You must always finish your turn by calling the respond_to_customer tool — that is the only way your reply actually reaches the customer. Its fields:
 - "reply": the message to send back to the customer on WhatsApp.
 - "escalate": true if a human should be notified to step in, false otherwise.
 - "escalate_reason": a short (<15 words) reason, only when escalate is true.

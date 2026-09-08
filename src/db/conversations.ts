@@ -48,19 +48,23 @@ export async function insertMessage(
   direction: "in" | "out",
   content: string,
   waMessageId?: string,
+  // Architecture doc §4 audit trail — what the LLM invoked and with what
+  // args/results, set on the bot's own "out" message when tools were used.
+  toolCalls?: unknown[],
 ): Promise<{ inserted: boolean }> {
+  const toolCallsJson = toolCalls && toolCalls.length > 0 ? JSON.stringify(toolCalls) : null;
   if (waMessageId) {
     const result = await client.query(
-      `INSERT INTO messages (tenant_id, conversation_id, direction, content, wa_message_id)
-       VALUES ($1, $2, $3, $4, $5)
+      `INSERT INTO messages (tenant_id, conversation_id, direction, content, wa_message_id, tool_calls)
+       VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (wa_message_id) WHERE wa_message_id IS NOT NULL DO NOTHING`,
-      [tenantId, conversationId, direction, content, waMessageId],
+      [tenantId, conversationId, direction, content, waMessageId, toolCallsJson],
     );
     return { inserted: (result.rowCount ?? 0) > 0 };
   }
   await client.query(
-    `INSERT INTO messages (tenant_id, conversation_id, direction, content) VALUES ($1, $2, $3, $4)`,
-    [tenantId, conversationId, direction, content],
+    `INSERT INTO messages (tenant_id, conversation_id, direction, content, tool_calls) VALUES ($1, $2, $3, $4, $5)`,
+    [tenantId, conversationId, direction, content, toolCallsJson],
   );
   return { inserted: true };
 }

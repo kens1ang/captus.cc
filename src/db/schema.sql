@@ -69,6 +69,11 @@ CREATE TABLE IF NOT EXISTS messages (
 );
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES tenants(id);
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS wa_message_id text;
+-- Architecture doc §4: audit trail for whatever the LLM decided to invoke and
+-- with what arguments/results, on the bot's own "out" message row. This is
+-- what you check first when a customer disputes "the bot booked me for the
+-- wrong time" — not optional logging, the actual record of what happened.
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS tool_calls jsonb;
 
 CREATE INDEX IF NOT EXISTS messages_conversation_created_idx
   ON messages (conversation_id, created_at);
@@ -85,3 +90,71 @@ CREATE TABLE IF NOT EXISTS knowledge_chunks (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES tenants(id);
+
+-- Stage 5: booking, per architecture doc §5.2 (Google Calendar as the
+-- source-of-truth for availability, not a from-scratch calendar).
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS timezone text NOT NULL DEFAULT 'Asia/Singapore';
+
+-- What a tenant can be booked for. A booking always references one of these
+-- (for its duration) — no freehand duration, same "never let the model
+-- invent it" principle as prices in §5.3 of the architecture doc.
+CREATE TABLE IF NOT EXISTS services (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid REFERENCES tenants(id),
+  name text NOT NULL,
+  duration_minutes integer NOT NULL CHECK (duration_minutes > 0),
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE services ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES tenants(id);
+
+-- Weekly recurring open hours. One row per open interval; a weekday with no
+-- row is closed. Multiple rows per day supports split hours (e.g. a lunch
+-- break). Google freebusy alone can't tell us this — it only knows what's
+-- already on the calendar, not when the business is even open.
+CREATE TABLE IF NOT EXISTS business_hours (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid REFERENCES tenants(id),
+  day_of_week smallint NOT NULL CHECK (day_of_week BETWEEN 0 AND 6), -- 0 = Sunday
+  start_time time NOT NULL,
+  end_time time NOT NULL,
+  CHECK (end_time > start_time)
+);
+ALTER TABLE business_hours ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES tenants(id);
+CREATE INDEX IF NOT EXISTS business_hours_tenant_idx ON business_hours (tenant_id);
+
+-- One Google Calendar connection per tenant. refresh_token_encrypted is a
+-- long-lived credential to the tenant's real calendar — encrypted at rest via
+-- lib/crypto.ts, and RLS'd like everything else tenant-scoped (defense in
+-- depth: this is more sensitive than an FAQ chunk, not less).
+CREATE TABLE IF NOT EXISTS google_calendar_connections (
+  tenant_id uuid PRIMARY KEY REFERENCES tenants(id),
+  calendar_id text NOT NULL DEFAULT 'primary',
+  refresh_token_encrypted text NOT NULL,
+  connected_email text,
+  connected_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- Local cache of what we've booked — Google Calendar is still the
+-- source-of-truth an owner's staff actually look at, but a local row is what
+-- the dashboard lists/manages without round-tripping Google on every read,
+-- and it's a fast local double-booking guard alongside the live freebusy
+-- check (lib/availability.ts checks both).
+CREATE TABLE IF NOT EXISTS bookings (
+  id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
+  tenant_id uuid REFERENCES tenants(id),
+  conversation_id uuid REFERENCES conversations(id),
+  service_id uuid REFERENCES services(id),
+  contact_wa_number text NOT NULL,
+  contact_name text,
+  starts_at timestamptz NOT NULL,
+  ends_at timestamptz NOT NULL,
+  status text NOT NULL DEFAULT 'confirmed' CHECK (status IN ('confirmed', 'cancelled')),
+  google_event_id text,
+  -- Follow-up engine (mvp-plan.md's next stage after this one) will scan for
+  -- upcoming bookings with reminder_sent_at IS NULL — added now so that
+  -- doesn't need a later migration.
+  reminder_sent_at timestamptz,
+  created_at timestamptz NOT NULL DEFAULT now()
+);
+ALTER TABLE bookings ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES tenants(id);
+CREATE INDEX IF NOT EXISTS bookings_tenant_starts_idx ON bookings (tenant_id, starts_at);
