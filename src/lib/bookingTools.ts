@@ -86,8 +86,13 @@ function findService(services: Service[], name: string): Service | undefined {
   return services.find((s) => s.name.toLowerCase() === name.toLowerCase());
 }
 
-function label(startISO: string, timezone: string): string {
-  return DateTime.fromISO(startISO).setZone(timezone).toFormat("EEE d LLL, h:mm a");
+// Full start–end range, not just the start time — a customer told only
+// "2:30 PM" has no idea if that means they need to block 15 minutes or an
+// hour of their day.
+function label(startISO: string, endISO: string, timezone: string): string {
+  const start = DateTime.fromISO(startISO).setZone(timezone);
+  const end = DateTime.fromISO(endISO).setZone(timezone);
+  return `${start.toFormat("EEE d LLL")}, ${start.toFormat("h:mm a")} - ${end.toFormat("h:mm a")}`;
 }
 
 export interface BookingToolContext {
@@ -158,7 +163,7 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
       // to do its own timezone math when describing options to the customer.
       // If these slots fall on a different date than requested, the label
       // makes that obvious — say so rather than booking the wrong day.
-      slots: slots.map((s) => ({ start_iso: s.startISO, label: label(s.startISO, ctx.timezone) })),
+      slots: slots.map((s) => ({ start_iso: s.startISO, label: label(s.startISO, s.endISO, ctx.timezone) })),
     };
   }
 
@@ -183,13 +188,13 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
     }
 
     const booking = await createConfirmedBooking(ctx, service, startISO, customerName);
-    return { success: true, booking_id: booking.id, confirmed_label: label(startISO, ctx.timezone) };
+    return { success: true, booking_id: booking.id, confirmed_label: label(booking.startsAt, booking.endsAt, ctx.timezone) };
   }
 
   if (call.name === LIST_MY_BOOKINGS) {
     const bookings = await withTenant(ctx.tenantId, (client) => listUpcomingBookingsForContact(client, ctx.contactWaNumber));
     return {
-      bookings: bookings.map((b) => ({ booking_id: b.id, service: b.serviceName, label: label(b.startsAt, ctx.timezone) })),
+      bookings: bookings.map((b) => ({ booking_id: b.id, service: b.serviceName, label: label(b.startsAt, b.endsAt, ctx.timezone) })),
     };
   }
 
@@ -207,7 +212,7 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
         console.warn(`[bookingTools] failed to delete Google Calendar event for cancelled booking ${cancelled.id}:`, err);
       }
     }
-    return { success: true, cancelled_label: label(cancelled.startsAt, ctx.timezone) };
+    return { success: true, cancelled_label: label(cancelled.startsAt, cancelled.endsAt, ctx.timezone) };
   }
 
   if (call.name === RESCHEDULE_APPOINTMENT) {
@@ -244,9 +249,9 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
     const rebooked = await createConfirmedBooking(ctx, service, newStartISO, existing.contactName);
     return {
       success: true,
-      old_label: label(existing.startsAt, ctx.timezone),
+      old_label: label(existing.startsAt, existing.endsAt, ctx.timezone),
       new_booking_id: rebooked.id,
-      new_label: label(newStartISO, ctx.timezone),
+      new_label: label(rebooked.startsAt, rebooked.endsAt, ctx.timezone),
     };
   }
 

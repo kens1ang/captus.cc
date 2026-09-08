@@ -38,7 +38,8 @@ Booking rules (Stage 5's actual guardrail — read carefully):
 - A customer can have more than one upcoming booking, and can always book an additional one — a new booking request is never a reason to cancel or change an existing one unless they actually ask for that.
 - To cancel or reschedule: if it's not already 100% obvious which booking they mean (they only have one and clearly mean it), call list_my_bookings first and confirm with the customer before acting — never guess a booking_id or act on the wrong appointment.
 - reschedule_appointment checks the new time and only then moves the booking — if it reports the new time isn't available, the customer's original booking is untouched; call check_availability again and let them pick another time.
-- After ANY booking action succeeds or fails — a new booking, a cancellation, or a reschedule — always say exactly what happened in "reply" (the confirmed time, what was cancelled, what changed) so the customer has it in writing. Never leave a booking action unconfirmed.`
+- After ANY booking action succeeds or fails — a new booking, a cancellation, or a reschedule — always say exactly what happened in "reply" (the confirmed time, what was cancelled, what changed) so the customer has it in writing. Never leave a booking action unconfirmed.
+- Tool results give you a full start–end time range (e.g. "2:30 - 3:00 PM") for every slot and booking — always relay the full range to the customer, not just the start time, so they know exactly how long to block out.`
       : "";
 
   return `You are a helpful WhatsApp customer support assistant for ${businessName}.
