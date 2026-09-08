@@ -1,5 +1,5 @@
 import { backendFetch } from "@/lib/backend";
-import { createTenant, linkClient } from "./actions";
+import { createTenant, linkClient, updateWabaId } from "./actions";
 
 interface TenantUser {
   id: string;
@@ -13,6 +13,7 @@ interface Tenant {
   businessName: string;
   businessDescription: string;
   whatsappPhoneNumberId: string;
+  whatsappBusinessAccountId: string | null;
   users: TenantUser[];
 }
 
@@ -42,6 +43,11 @@ export default async function AdminPage() {
           className="border border-gray-300 rounded px-3 py-2 text-sm font-mono"
           required
         />
+        <input
+          name="whatsappBusinessAccountId"
+          placeholder="WhatsApp Business Account (WABA) id — from WhatsApp Manager > API Setup, next to the phone number id"
+          className="border border-gray-300 rounded px-3 py-2 text-sm font-mono"
+        />
         <button type="submit" className="self-start px-4 py-2 rounded bg-gray-900 text-white text-sm">
           Create
         </button>
@@ -53,6 +59,24 @@ export default async function AdminPage() {
             <div>
               <p className="font-medium">{t.businessName}</p>
               <p className="text-xs text-gray-400 font-mono">{t.whatsappPhoneNumberId}</p>
+            </div>
+
+            <div className="text-xs">
+              {t.whatsappBusinessAccountId ? (
+                <p className="text-gray-400 font-mono">WABA: {t.whatsappBusinessAccountId}</p>
+              ) : (
+                <form action={updateWabaId.bind(null, t.id)} className="flex gap-2">
+                  <input
+                    name="whatsappBusinessAccountId"
+                    placeholder="WABA id (needed for booking reminders)"
+                    className="flex-1 border border-gray-300 rounded px-2 py-1 font-mono"
+                    required
+                  />
+                  <button type="submit" className="px-2 py-1 rounded bg-gray-900 text-white">
+                    Save
+                  </button>
+                </form>
+              )}
             </div>
 
             <ul className="text-sm flex flex-col gap-1">

@@ -7,11 +7,24 @@ export async function createTenant(formData: FormData) {
   const businessName = String(formData.get("businessName") ?? "").trim();
   const businessDescription = String(formData.get("businessDescription") ?? "").trim();
   const whatsappPhoneNumberId = String(formData.get("whatsappPhoneNumberId") ?? "").trim();
+  const whatsappBusinessAccountId = String(formData.get("whatsappBusinessAccountId") ?? "").trim();
   if (!businessName || !whatsappPhoneNumberId) return;
 
   await backendFetch("/api/admin/tenants", {
     method: "POST",
-    body: JSON.stringify({ businessName, businessDescription, whatsappPhoneNumberId }),
+    body: JSON.stringify({ businessName, businessDescription, whatsappPhoneNumberId, whatsappBusinessAccountId }),
+  });
+
+  revalidatePath("/admin");
+}
+
+export async function updateWabaId(tenantId: string, formData: FormData) {
+  const whatsappBusinessAccountId = String(formData.get("whatsappBusinessAccountId") ?? "").trim();
+  if (!whatsappBusinessAccountId) return;
+
+  await backendFetch(`/api/admin/tenants/${tenantId}/whatsapp-business-account`, {
+    method: "POST",
+    body: JSON.stringify({ whatsappBusinessAccountId }),
   });
 
   revalidatePath("/admin");

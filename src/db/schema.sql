@@ -94,6 +94,12 @@ ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES 
 -- Stage 5: booking, per architecture doc §5.2 (Google Calendar as the
 -- source-of-truth for availability, not a from-scratch calendar).
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS timezone text NOT NULL DEFAULT 'Asia/Singapore';
+-- Set once per tenant when onboarding them — needed to create/manage THEIR
+-- WhatsApp message templates (booking reminders, future follow-ups), since
+-- templates are scoped to a WhatsApp Business Account, not a phone number,
+-- and every real client has their own separate WABA (not Captus's).
+-- Nullable: not needed for anything that doesn't send templates.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS whatsapp_business_account_id text;
 
 -- What a tenant can be booked for. A booking always references one of these
 -- (for its duration) — no freehand duration, same "never let the model

@@ -1,6 +1,6 @@
 import type { FastifyInstance } from "fastify";
 import { requireDashboardAuth, requireAdmin } from "../lib/clerkAuth.js";
-import { createTenant, listTenants, getTenantById } from "../db/tenants.js";
+import { createTenant, listTenants, getTenantById, updateTenantWhatsappBusinessAccountId } from "../db/tenants.js";
 import { linkUserToTenant, listUsersForTenant } from "../db/users.js";
 import { findClerkUserIdByEmail } from "../lib/clerkClient.js";
 
@@ -23,9 +23,9 @@ export async function adminRoutes(app: FastifyInstance) {
   });
 
   app.post<{
-    Body: { businessName: string; businessDescription?: string; whatsappPhoneNumberId: string };
+    Body: { businessName: string; businessDescription?: string; whatsappPhoneNumberId: string; whatsappBusinessAccountId?: string };
   }>("/api/admin/tenants", async (req, reply) => {
-    const { businessName, businessDescription, whatsappPhoneNumberId } = req.body ?? ({} as never);
+    const { businessName, businessDescription, whatsappPhoneNumberId, whatsappBusinessAccountId } = req.body ?? ({} as never);
     if (!businessName?.trim() || !whatsappPhoneNumberId?.trim()) {
       return reply.code(400).send({ error: "businessName and whatsappPhoneNumberId are required" });
     }
@@ -33,9 +33,24 @@ export async function adminRoutes(app: FastifyInstance) {
       businessName: businessName.trim(),
       businessDescription: businessDescription?.trim() ?? "",
       whatsappPhoneNumberId: whatsappPhoneNumberId.trim(),
+      whatsappBusinessAccountId: whatsappBusinessAccountId?.trim() || undefined,
     });
     return reply.code(201).send(tenant);
   });
+
+  // Lets you fill in/correct a WABA id after the tenant already exists — the
+  // create form above covers new tenants, this covers ones onboarded before
+  // this field existed, or where it wasn't known yet at creation time.
+  app.post<{ Params: { id: string }; Body: { whatsappBusinessAccountId: string } }>(
+    "/api/admin/tenants/:id/whatsapp-business-account",
+    async (req, reply) => {
+      const whatsappBusinessAccountId = req.body?.whatsappBusinessAccountId?.trim();
+      if (!whatsappBusinessAccountId) return reply.code(400).send({ error: "whatsappBusinessAccountId is required" });
+      const tenant = await updateTenantWhatsappBusinessAccountId(req.params.id, whatsappBusinessAccountId);
+      if (!tenant) return reply.code(404).send({ error: "Tenant not found" });
+      return tenant;
+    },
+  );
 
   app.get<{ Params: { id: string } }>("/api/admin/tenants/:id", async (req, reply) => {
     const tenant = await getTenantById(req.params.id);

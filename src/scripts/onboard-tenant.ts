@@ -1,12 +1,18 @@
 // Stage 3's "bare internal tool" for onboarding a new tenant.
-// Usage: npm run onboard -- <whatsapp-phone-number-id> "<business name>" "<business description>"
+// Usage: npm run onboard -- <whatsapp-phone-number-id> "<business name>" "<business description>" [waba-id]
+// The WABA id (WhatsApp Manager > API Setup, next to the phone number id) is
+// optional at onboarding time — needed later only if this tenant uses
+// booking reminders (its own message templates), and can be added/edited
+// from the admin dashboard afterwards either way.
 import { createTenant, getTenantByPhoneNumberId } from "../db/tenants.js";
 import { pool } from "../db/pool.js";
 
 async function main() {
-  const [phoneNumberId, businessName, businessDescription] = process.argv.slice(2);
+  const [phoneNumberId, businessName, businessDescription, wabaId] = process.argv.slice(2);
   if (!phoneNumberId || !businessName) {
-    console.error('Usage: npm run onboard -- <whatsapp-phone-number-id> "<business name>" "<business description>"');
+    console.error(
+      'Usage: npm run onboard -- <whatsapp-phone-number-id> "<business name>" "<business description>" [waba-id]',
+    );
     process.exit(1);
   }
 
@@ -22,6 +28,7 @@ async function main() {
     businessName,
     businessDescription: businessDescription ?? "",
     whatsappPhoneNumberId: phoneNumberId,
+    whatsappBusinessAccountId: wabaId,
   });
 
   console.log(`Created tenant "${tenant.businessName}" (${tenant.id}) for WhatsApp phone number id ${phoneNumberId}.`);
