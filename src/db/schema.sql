@@ -50,6 +50,10 @@ ALTER TABLE conversations ADD CONSTRAINT conversations_status_check CHECK (statu
 -- number can have separate conversations with separate tenants.
 ALTER TABLE conversations DROP CONSTRAINT IF EXISTS conversations_wa_number_key;
 CREATE UNIQUE INDEX IF NOT EXISTS conversations_tenant_wa_number_uidx ON conversations (tenant_id, wa_number);
+-- Covers the dashboard's conversation list (RLS-filtered by tenant_id,
+-- ordered by last_message_at DESC) — without this it's a sequential scan
+-- once conversation volume grows past a handful of rows.
+CREATE INDEX IF NOT EXISTS conversations_tenant_last_message_idx ON conversations (tenant_id, last_message_at DESC);
 
 CREATE TABLE IF NOT EXISTS messages (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),

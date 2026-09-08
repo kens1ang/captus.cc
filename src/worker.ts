@@ -230,7 +230,14 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       throw new Error(`Tenant ${tenantId} not found (deleted after the message arrived?)`);
     }
 
-    const assistant = await withTenant(tenantId, async (client) => {
+    // DB-only: fetch conversation state + history in one short transaction.
+    // Deliberately NOT wrapping the Gemini calls below in this (or any)
+    // transaction — embedText/generateReply are network round-trips that can
+    // take seconds, and holding a pooled Postgres connection idle-in-transaction
+    // for that long is how a burst of concurrent replies exhausts the pool and
+    // wedges unrelated queries (webhook inserts, dashboard reads) behind LLM
+    // latency. Each DB step below gets its own short-lived withTenant() instead.
+    const convoState = await withTenant(tenantId, async (client) => {
       const conversationId = await getOrCreateConversation(client, tenantId, from);
 
       // Stage 4 human takeover (architecture doc §5.6): once a human has
@@ -238,46 +245,47 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       // no auto-reply — until the dashboard resumes it back to 'bot'.
       const conversation = await getConversation(client, conversationId);
       if (conversation && conversation.status !== "bot") {
-        return null;
+        return { skip: true as const, conversationId };
       }
-
-      // Show typing as soon as we know we're actually going to reply (not
-      // right before send) — that's the whole point of it masking LLM latency.
-      await sendTypingIndicator(waPhoneNumberId, lastMessageId);
-
-      // Embed the combined buffered text (better intent signal than any single fragment) for RAG lookup.
-      const queryEmbedding = await embedText(combinedText);
-      const knowledge = await searchKnowledge(client, queryEmbedding, RAG_TOP_K);
-      const systemPrompt = buildSystemPrompt(tenant.businessName, tenant.businessDescription, knowledge.map((k) => k.content));
 
       // History already contains each buffered message as its own turn (inserted by worker 1),
       // so the model sees them as sequential user turns rather than one flattened blob.
       const history = await getRecentMessages(client, conversationId, HISTORY_LIMIT);
-      const chatHistory: ChatTurn[] = history.map((m) => ({
-        role: m.direction === "in" ? "user" : "model",
-        text: m.content,
-      }));
-
-      const result = await generateReply(systemPrompt, chatHistory);
-
-      // Deliberately NOT persisted yet — see below. If sendTextMessage throws
-      // (e.g. WhatsApp/Meta-side rejection), a message recorded here would
-      // (a) show as "sent" in the dashboard when it never reached the
-      // customer, and (b) poison the next retry's chatHistory above, which
-      // would then end on a "model" turn instead of "user" — Gemini rejects
-      // that outright, turning one WhatsApp-side failure into a second,
-      // unrelated one that eats the rest of the retry budget.
-      return { conversationId, result };
+      return { skip: false as const, conversationId, history };
     });
 
-    if (!assistant) {
+    if (convoState.skip) {
       console.log(`[worker] conversation with ${from} is human-handled — skipping auto-reply`);
       await connection.del(bufferKey(from)); // still clear so it doesn't pile up; the human sees raw messages in the dashboard
       return;
     }
 
-    const { conversationId, result } = assistant;
+    const { conversationId, history } = convoState;
 
+    // Show typing as soon as we know we're actually going to reply (not
+    // right before send) — that's the whole point of it masking LLM latency.
+    await sendTypingIndicator(waPhoneNumberId, lastMessageId);
+
+    // Embed the combined buffered text (better intent signal than any single
+    // fragment) for RAG lookup — no DB connection held during this network call.
+    const queryEmbedding = await embedText(combinedText);
+    const knowledge = await withTenant(tenantId, (client) => searchKnowledge(client, queryEmbedding, RAG_TOP_K));
+    const systemPrompt = buildSystemPrompt(tenant.businessName, tenant.businessDescription, knowledge.map((k) => k.content));
+
+    const chatHistory: ChatTurn[] = history.map((m) => ({
+      role: m.direction === "in" ? "user" : "model",
+      text: m.content,
+    }));
+
+    const result = await generateReply(systemPrompt, chatHistory);
+
+    // Deliberately NOT persisted yet — see below. If sendTextMessage throws
+    // (e.g. WhatsApp/Meta-side rejection), a message recorded here would
+    // (a) show as "sent" in the dashboard when it never reached the
+    // customer, and (b) poison the next retry's chatHistory above, which
+    // would then end on a "model" turn instead of "user" — Gemini rejects
+    // that outright, turning one WhatsApp-side failure into a second,
+    // unrelated one that eats the rest of the retry budget.
     await sendTextMessage(waPhoneNumberId, from, result.reply);
     await connection.del(bufferKey(from)); // only clear once the reply has actually gone out
 
