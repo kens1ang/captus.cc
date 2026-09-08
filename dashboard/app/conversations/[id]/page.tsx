@@ -7,6 +7,7 @@ interface ConversationDetail {
   id: string;
   waNumber: string;
   status: "bot" | "needs_human" | "human_active";
+  summary: string | null;
 }
 
 interface FullMessage {
@@ -40,6 +41,13 @@ export default async function ConversationPage(props: PageProps<"/conversations/
           <span className="text-xs text-gray-500">Bot is auto-replying</span>
         )}
       </div>
+
+      {conversation.summary && (
+        <div className="border border-gray-200 bg-gray-50 rounded p-3">
+          <p className="text-xs font-medium text-gray-600 mb-1">What the bot remembers about this customer</p>
+          <p className="text-xs text-gray-500 whitespace-pre-wrap">{conversation.summary}</p>
+        </div>
+      )}
 
       <div className="flex flex-col gap-2 border border-gray-200 rounded p-4 max-h-[60vh] overflow-y-auto">
         {messages.map((m) => (

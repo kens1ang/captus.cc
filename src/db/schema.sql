@@ -46,6 +46,16 @@ ALTER TABLE conversations ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES ten
 ALTER TABLE conversations ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'bot';
 ALTER TABLE conversations DROP CONSTRAINT IF EXISTS conversations_status_check;
 ALTER TABLE conversations ADD CONSTRAINT conversations_status_check CHECK (status IN ('bot', 'needs_human', 'human_active'));
+-- Long-term memory of this customer, distilled from messages that have
+-- scrolled out of the reply agent's recent-message window. Without this the
+-- bot's memory was hard-capped at the last HISTORY_LIMIT messages — every
+-- conversation older than that was durably stored but effectively invisible
+-- to the model. See lib/conversationMemory.ts.
+-- summary_through_message_at is the watermark: the created_at of the newest
+-- message already folded into `summary`, so we never re-summarize the same
+-- messages twice.
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS summary text;
+ALTER TABLE conversations ADD COLUMN IF NOT EXISTS summary_through_message_at timestamptz;
 -- Pre-Stage-3, wa_number alone was globally unique; now the same customer
 -- number can have separate conversations with separate tenants.
 ALTER TABLE conversations DROP CONSTRAINT IF EXISTS conversations_wa_number_key;

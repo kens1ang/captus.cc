@@ -23,8 +23,10 @@ import {
   insertMessage,
   touchConversation,
   getConversation,
+  getConversationMemory,
   setConversationStatus,
 } from "./db/conversations.js";
+import { maybeUpdateConversationSummary, MEMORY_KEEP_RECENT } from "./lib/conversationMemory.js";
 import { searchKnowledge } from "./db/knowledge.js";
 import { listServices } from "./db/services.js";
 import { listDocuments } from "./db/documents.js";
@@ -34,7 +36,11 @@ import { getTenantById } from "./db/tenants.js";
 import { notifyEscalation } from "./lib/escalation.js";
 import { config } from "./lib/config.js";
 
-const HISTORY_LIMIT = 10;
+// Raw messages passed to the model verbatim each turn. Anything older than
+// this is covered by the conversation summary instead (lib/conversationMemory.ts)
+// — which is also why this can afford to be generous now: in-session
+// coherence shouldn't depend on a summary of something said three minutes ago.
+const HISTORY_LIMIT = MEMORY_KEEP_RECENT;
 const RAG_TOP_K = 4;
 
 function bufferKey(from: string): string {
@@ -266,7 +272,10 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       // agent's tool list exactly as before (FAQ-only).
       const services = await listServices(client);
       const documents = await listDocuments(client);
-      return { skip: false as const, conversationId, history, services, documents };
+      // Long-term memory of this customer — everything that scrolled out of
+      // the `history` window above, distilled (lib/conversationMemory.ts).
+      const { summary } = await getConversationMemory(client, conversationId);
+      return { skip: false as const, conversationId, history, services, documents, customerMemory: summary };
     });
 
     if (convoState.skip) {
@@ -275,7 +284,7 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       return;
     }
 
-    const { conversationId, history, services, documents } = convoState;
+    const { conversationId, history, services, documents, customerMemory } = convoState;
 
     // Show typing as soon as we know we're actually going to reply (not
     // right before send) — that's the whole point of it masking LLM latency.
@@ -292,6 +301,7 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       tenant.timezone,
       services,
       documents,
+      customerMemory,
     );
 
     const chatHistory: ChatTurn[] = history.map((m) => ({
@@ -366,6 +376,17 @@ const replyWorker = new Worker<ReplyDebounceJob>(
         await setConversationStatus(client, conversationId, "needs_human");
       }
     });
+
+    // Fold anything that just scrolled out of the history window into the
+    // conversation's long-term memory. Strictly after the reply is sent and
+    // recorded, and swallowing its own errors: the customer already has
+    // their reply, so a summarization hiccup must never fail this job and
+    // trigger a retry that re-sends it.
+    try {
+      await maybeUpdateConversationSummary(tenantId, conversationId);
+    } catch (err) {
+      console.warn(`[worker] conversation summary update failed for ${conversationId} (reply already sent):`, err);
+    }
 
     if (result.escalate) {
       console.log(`[worker] escalating conversation with ${from}: ${result.escalateReason ?? "unspecified"}`);

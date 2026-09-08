@@ -154,6 +154,44 @@ export async function runReplyTurn(
   };
 }
 
+/**
+ * Distills a customer's older messages into durable notes (lib/conversationMemory.ts).
+ * Merges into any existing summary rather than appending, so it stays bounded
+ * however long the relationship runs.
+ */
+export async function summarizeConversation(existingSummary: string | null, transcript: string): Promise<string> {
+  const prompt = `You maintain a short running memory of what a business's assistant knows about ONE customer, from their WhatsApp conversation.
+
+Existing memory:
+${existingSummary?.trim() || "(nothing recorded yet)"}
+
+Newer messages, not yet reflected in that memory:
+${transcript}
+
+Write the UPDATED memory — the durable facts worth remembering about this customer next time they message.
+
+Rules:
+- Merge with the existing memory; don't just append. Drop anything stale or no longer relevant so this stays bounded, under 150 words.
+- Facts the customer actually stated only. Never infer, guess, or embellish.
+- Include things like: their name, how they prefer to be addressed, stated preferences or constraints, what they've asked about, ongoing issues, anything they'd reasonably expect to be remembered.
+- Do NOT record sensitive details a business shouldn't retain (card numbers, ID/passport numbers, passwords, health details they didn't clearly volunteer as relevant).
+- Skip routine scheduling logistics already tracked elsewhere (specific appointment times are stored as real bookings, not memory).
+- Output plain notes only — no preamble, no headings, no commentary about the task.`;
+
+  const url = `${GEMINI_API_BASE}/models/${config.gemini.model}:generateContent?key=${config.gemini.apiKey}`;
+  const res = await fetch(url, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }] }),
+  });
+  if (!res.ok) throw new Error(`Gemini summarizeConversation failed (${res.status}): ${await res.text()}`);
+
+  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
+  const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() ?? "";
+  if (!text) throw new Error(`Gemini summarizeConversation returned no text: ${JSON.stringify(data)}`);
+  return text;
+}
+
 /** Basic voice-note handling: transcribe, then feed the transcript through the normal text pipeline. */
 export async function transcribeAudio(audioData: Buffer, mimeType: string): Promise<string> {
   const url = `${GEMINI_API_BASE}/models/${config.gemini.transcriptionModel}:generateContent?key=${config.gemini.apiKey}`;

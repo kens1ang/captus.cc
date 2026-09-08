@@ -11,6 +11,7 @@ export function buildSystemPrompt(
   timezone: string,
   services: Service[],
   documents: DocumentSummary[],
+  customerMemory: string | null,
 ): string {
   const knowledgeSection =
     knowledgeChunks.length > 0
@@ -52,12 +53,21 @@ Booking rules (Stage 5's actual guardrail — read carefully):
 Call send_document when the customer asks for one of these by name, or clearly implies wanting one (e.g. "do you have a menu?", "send me your catalog") — don't just describe the file in text when you could send the actual thing. If none of the available documents match what they're asking for, say so honestly rather than sending the closest guess.`
       : "";
 
+  // Distilled from messages that have scrolled out of the conversation
+  // window below (lib/conversationMemory.ts) — this is how the bot remembers
+  // a customer beyond the last handful of messages.
+  const memorySection = customerMemory?.trim()
+    ? `\n\nWhat you already know about this customer, from earlier in your conversations with them:
+${customerMemory.trim()}
+This is your own real memory of them — treat it as fact and use it naturally, but don't recite it back at them unprompted or make a point of "remembering". If it ever contradicts what they say now, believe what they say now.`
+    : "";
+
   return `You are a helpful WhatsApp customer support assistant for ${businessName}.
 ${businessDescription}
 
 ${currentTimeSection}
 
-${knowledgeSection}${bookingSection}${documentsSection}
+${knowledgeSection}${bookingSection}${documentsSection}${memorySection}
 
 You must always finish your turn by calling the respond_to_customer tool — that is the only way your reply actually reaches the customer. Its fields:
 - "reply": the message to send back to the customer on WhatsApp.
