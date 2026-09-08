@@ -98,14 +98,32 @@ export async function listConfirmedBookingsInRange(client: PoolClient, rangeStar
   return result.rows.map(toBooking);
 }
 
-/** Dashboard's bookings list — soonest upcoming first. */
+/**
+ * Dashboard's bookings list — soonest upcoming first. Confirmed only: a
+ * cancelled booking with a future starts_at previously stayed in this list
+ * forever (nothing filtered on status), so it never actually disappeared
+ * after cancelling, and clicking Cancel on it again hit the
+ * already-cancelled 404 path — this filter is the actual fix for that.
+ */
 export async function listUpcomingBookings(client: PoolClient, limit = 100): Promise<Booking[]> {
   const result = await client.query<BookingRow>(
     `${SELECT_WITH_SERVICE_NAME}
-     WHERE b.starts_at > now()
+     WHERE b.status = 'confirmed' AND b.starts_at > now()
      ORDER BY b.starts_at
      LIMIT $1`,
     [limit],
+  );
+  return result.rows.map(toBooking);
+}
+
+/** Same as listUpcomingBookings but scoped to one customer — the bot's list_my_bookings tool, so it can find/confirm which booking a "cancel my appointment" or "reschedule" request refers to. */
+export async function listUpcomingBookingsForContact(client: PoolClient, contactWaNumber: string, limit = 20): Promise<Booking[]> {
+  const result = await client.query<BookingRow>(
+    `${SELECT_WITH_SERVICE_NAME}
+     WHERE b.status = 'confirmed' AND b.starts_at > now() AND b.contact_wa_number = $1
+     ORDER BY b.starts_at
+     LIMIT $2`,
+    [contactWaNumber, limit],
   );
   return result.rows.map(toBooking);
 }

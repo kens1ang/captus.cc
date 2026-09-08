@@ -1,13 +1,16 @@
 import { DateTime } from "luxon";
-import type { Service } from "../db/services.js";
+import { getServiceById, type Service } from "../db/services.js";
 import type { ToolCall, ToolDeclaration } from "./gemini.js";
 import { withTenant } from "../db/tenantContext.js";
 import { computeAvailableSlots, isSlotAvailable } from "./availability.js";
-import { createBooking } from "../db/bookings.js";
-import { createCalendarEvent } from "./googleCalendar.js";
+import { createBooking, getBookingById, cancelBooking, listUpcomingBookingsForContact, type Booking } from "../db/bookings.js";
+import { createCalendarEvent, deleteCalendarEvent } from "./googleCalendar.js";
 
 const CHECK_AVAILABILITY = "check_availability";
 const BOOK_APPOINTMENT = "book_appointment";
+const LIST_MY_BOOKINGS = "list_my_bookings";
+const CANCEL_APPOINTMENT = "cancel_appointment";
+const RESCHEDULE_APPOINTMENT = "reschedule_appointment";
 
 /** [] for a tenant with no services configured — the model then never sees these tools at all (worker.ts merges this into runReplyTurn's actionTools). */
 export function buildBookingTools(services: Service[]): ToolDeclaration[] {
@@ -46,11 +49,45 @@ export function buildBookingTools(services: Service[]): ToolDeclaration[] {
         required: ["service_name", "start_iso"],
       },
     },
+    {
+      name: LIST_MY_BOOKINGS,
+      description:
+        "Lists this customer's own upcoming confirmed bookings (with their booking_id). Call this before cancel_appointment or reschedule_appointment whenever it's not already 100% clear which booking the customer means — e.g. they have more than one, or haven't specified which.",
+      parameters: { type: "OBJECT", properties: {} },
+    },
+    {
+      name: CANCEL_APPOINTMENT,
+      description: "Cancels one of this customer's own bookings. Use list_my_bookings first if you're not certain which booking_id is the right one.",
+      parameters: {
+        type: "OBJECT",
+        properties: {
+          booking_id: { type: "STRING", description: "The booking's id, from a list_my_bookings or earlier book_appointment result." },
+        },
+        required: ["booking_id"],
+      },
+    },
+    {
+      name: RESCHEDULE_APPOINTMENT,
+      description:
+        "Moves an existing booking to a new time (cancels the old slot and books the new one as one action). Only call this with a new_start_iso that came from a check_availability result — check availability for the new time first. If the new time isn't actually available, the old booking is left untouched.",
+      parameters: {
+        type: "OBJECT",
+        properties: {
+          booking_id: { type: "STRING", description: "The existing booking's id, from a list_my_bookings or earlier book_appointment result." },
+          new_start_iso: { type: "STRING", description: "The new start time (ISO 8601, with offset) from a check_availability result — same service/duration as the existing booking." },
+        },
+        required: ["booking_id", "new_start_iso"],
+      },
+    },
   ];
 }
 
 function findService(services: Service[], name: string): Service | undefined {
   return services.find((s) => s.name.toLowerCase() === name.toLowerCase());
+}
+
+function label(startISO: string, timezone: string): string {
+  return DateTime.fromISO(startISO).setZone(timezone).toFormat("EEE d LLL, h:mm a");
 }
 
 export interface BookingToolContext {
@@ -59,6 +96,48 @@ export interface BookingToolContext {
   services: Service[];
   conversationId: string;
   contactWaNumber: string;
+}
+
+/** Shared by book_appointment and reschedule_appointment's new-slot leg — assumes the caller already re-validated availability. */
+async function createConfirmedBooking(
+  ctx: BookingToolContext,
+  service: Service,
+  startISO: string,
+  customerName: string | null,
+): Promise<Booking> {
+  const endISO = DateTime.fromISO(startISO).plus({ minutes: service.durationMinutes }).toISO()!;
+  const googleEventId = await createCalendarEvent(ctx.tenantId, {
+    summary: `${service.name} — ${customerName ?? ctx.contactWaNumber}`,
+    description: `Booked via Captus WhatsApp. Customer: ${ctx.contactWaNumber}${customerName ? ` (${customerName})` : ""}.`,
+    startISO,
+    endISO,
+    timezone: ctx.timezone,
+  });
+  return withTenant(ctx.tenantId, (client) =>
+    createBooking(client, ctx.tenantId, {
+      conversationId: ctx.conversationId,
+      serviceId: service.id,
+      contactWaNumber: ctx.contactWaNumber,
+      contactName: customerName,
+      startsAt: startISO,
+      endsAt: endISO,
+      googleEventId,
+    }),
+  );
+}
+
+/**
+ * Looks up a booking and verifies it actually belongs to this conversation's
+ * customer — booking_id is an LLM-supplied tool argument, driven by
+ * attacker-controllable conversation text, so this check is what actually
+ * stops one customer's messages from cancelling or rescheduling someone
+ * else's booking (a guessed or leaked id), not just trusting the model to
+ * only ever reference its own list_my_bookings results.
+ */
+async function getOwnBooking(ctx: BookingToolContext, bookingId: string): Promise<Booking | null> {
+  const booking = await withTenant(ctx.tenantId, (client) => getBookingById(client, bookingId));
+  if (!booking || booking.status !== "confirmed" || booking.contactWaNumber !== ctx.contactWaNumber) return null;
+  return booking;
 }
 
 /** Dispatches a single tool call from the reply agent loop — the only place booking tool names/args are actually executed against real data. */
@@ -79,7 +158,7 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
       // to do its own timezone math when describing options to the customer.
       // If these slots fall on a different date than requested, the label
       // makes that obvious — say so rather than booking the wrong day.
-      slots: slots.map((s) => ({ start_iso: s.startISO, label: DateTime.fromISO(s.startISO).setZone(ctx.timezone).toFormat("EEE d LLL, h:mm a") })),
+      slots: slots.map((s) => ({ start_iso: s.startISO, label: label(s.startISO, ctx.timezone) })),
     };
   }
 
@@ -103,31 +182,71 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
       return { success: false, error: "That slot is no longer available — call check_availability again for current options." };
     }
 
-    const endISO = DateTime.fromISO(startISO).plus({ minutes: service.durationMinutes }).toISO()!;
-    const googleEventId = await createCalendarEvent(ctx.tenantId, {
-      summary: `${service.name} — ${customerName ?? ctx.contactWaNumber}`,
-      description: `Booked via Captus WhatsApp. Customer: ${ctx.contactWaNumber}${customerName ? ` (${customerName})` : ""}.`,
-      startISO,
-      endISO,
-      timezone: ctx.timezone,
-    });
+    const booking = await createConfirmedBooking(ctx, service, startISO, customerName);
+    return { success: true, booking_id: booking.id, confirmed_label: label(startISO, ctx.timezone) };
+  }
 
-    const booking = await withTenant(ctx.tenantId, (client) =>
-      createBooking(client, ctx.tenantId, {
-        conversationId: ctx.conversationId,
-        serviceId: service.id,
-        contactWaNumber: ctx.contactWaNumber,
-        contactName: customerName,
-        startsAt: startISO,
-        endsAt: endISO,
-        googleEventId,
-      }),
+  if (call.name === LIST_MY_BOOKINGS) {
+    const bookings = await withTenant(ctx.tenantId, (client) => listUpcomingBookingsForContact(client, ctx.contactWaNumber));
+    return {
+      bookings: bookings.map((b) => ({ booking_id: b.id, service: b.serviceName, label: label(b.startsAt, ctx.timezone) })),
+    };
+  }
+
+  if (call.name === CANCEL_APPOINTMENT) {
+    const bookingId = call.args.booking_id as string | undefined;
+    const booking = bookingId ? await getOwnBooking(ctx, bookingId) : null;
+    if (!booking) return { success: false, error: "No matching upcoming booking found for this customer — call list_my_bookings to check." };
+
+    const cancelled = await withTenant(ctx.tenantId, (client) => cancelBooking(client, booking.id));
+    if (!cancelled) return { success: false, error: "That booking was already cancelled." };
+    if (cancelled.googleEventId) {
+      try {
+        await deleteCalendarEvent(ctx.tenantId, cancelled.googleEventId);
+      } catch (err) {
+        console.warn(`[bookingTools] failed to delete Google Calendar event for cancelled booking ${cancelled.id}:`, err);
+      }
+    }
+    return { success: true, cancelled_label: label(cancelled.startsAt, ctx.timezone) };
+  }
+
+  if (call.name === RESCHEDULE_APPOINTMENT) {
+    const bookingId = call.args.booking_id as string | undefined;
+    const newStartISO = call.args.new_start_iso as string | undefined;
+    const existing = bookingId ? await getOwnBooking(ctx, bookingId) : null;
+    if (!existing) return { success: false, error: "No matching upcoming booking found for this customer — call list_my_bookings to check." };
+    if (!newStartISO || !DateTime.fromISO(newStartISO).isValid) {
+      return { success: false, error: "new_start_iso is missing or not a valid ISO timestamp." };
+    }
+    const service = existing.serviceId ? await withTenant(ctx.tenantId, (client) => getServiceById(client, existing.serviceId!)) : null;
+    if (!service) return { success: false, error: "The original service for this booking no longer exists — please book a new appointment instead." };
+
+    // Validate the NEW slot before touching the old booking at all — if the
+    // new time turns out unavailable, the customer keeps their existing
+    // booking rather than ending up with neither (see reschedule_appointment's
+    // tool description: "the old booking is left untouched" is a real
+    // guarantee, not just a hope).
+    const stillAvailable = await withTenant(ctx.tenantId, (client) =>
+      isSlotAvailable(client, ctx.tenantId, ctx.timezone, service.durationMinutes, newStartISO),
     );
+    if (!stillAvailable) {
+      return { success: false, error: "That new time isn't available — call check_availability again and the existing booking is unchanged." };
+    }
 
+    const cancelled = await withTenant(ctx.tenantId, (client) => cancelBooking(client, existing.id));
+    if (cancelled?.googleEventId) {
+      try {
+        await deleteCalendarEvent(ctx.tenantId, cancelled.googleEventId);
+      } catch (err) {
+        console.warn(`[bookingTools] failed to delete Google Calendar event for rescheduled booking ${cancelled.id}:`, err);
+      }
+    }
+    const rebooked = await createConfirmedBooking(ctx, service, newStartISO, existing.contactName);
     return {
       success: true,
-      booking_id: booking.id,
-      confirmed_label: DateTime.fromISO(startISO).setZone(ctx.timezone).toFormat("EEE d LLL, h:mm a"),
+      old_label: label(existing.startsAt, ctx.timezone),
+      new_booking_id: rebooked.id,
+      new_label: label(newStartISO, ctx.timezone),
     };
   }
 

@@ -172,9 +172,37 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const tenantId = req.dashboardUser!.tenantId;
     const cancelled = await withTenant(tenantId, (client) => cancelBooking(client, req.params.id));
     if (!cancelled) return reply.code(404).send({ error: "Booking not found or already cancelled" });
+
+    // Best-effort — the cancellation itself already happened in our DB (the
+    // part that actually matters); a Google-side hiccup here shouldn't turn
+    // a successful cancel into a 500 the dashboard shows as an error.
     if (cancelled.googleEventId) {
-      await deleteCalendarEvent(tenantId, cancelled.googleEventId);
+      try {
+        await deleteCalendarEvent(tenantId, cancelled.googleEventId);
+      } catch (err) {
+        req.log.warn({ err, bookingId: cancelled.id }, "Failed to delete Google Calendar event for a cancelled booking");
+      }
     }
+
+    // Let the customer know — they booked this via WhatsApp, so a
+    // dashboard-side cancellation should reach them the same way, not leave
+    // them showing up expecting an appointment that's gone.
+    const tenant = await getTenantById(tenantId);
+    if (tenant) {
+      const notice = `Your ${cancelled.serviceName ?? "appointment"} has been cancelled. Let us know if you'd like to book another time.`;
+      try {
+        await sendTextMessage(tenant.whatsappPhoneNumberId, cancelled.contactWaNumber, notice);
+        if (cancelled.conversationId) {
+          await withTenant(tenantId, async (client) => {
+            await insertMessage(client, tenantId, cancelled.conversationId!, "out", notice);
+            await touchConversation(client, cancelled.conversationId!);
+          });
+        }
+      } catch (err) {
+        req.log.warn({ err, bookingId: cancelled.id }, "Failed to notify customer of dashboard-side booking cancellation");
+      }
+    }
+
     return { ok: true };
   });
 }
