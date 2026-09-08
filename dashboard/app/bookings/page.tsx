@@ -11,8 +11,25 @@ interface Booking {
   status: "confirmed" | "cancelled";
 }
 
+// Bookings are a real-world commitment in the BUSINESS's own timezone, not
+// whatever timezone the owner's browser happens to be set to — rendering
+// with the default (browser-local) Date formatting previously made a
+// perfectly valid future booking display as a nonsensical past one for
+// anyone viewing the dashboard from outside that timezone. Always pass the
+// tenant's configured timezone explicitly instead.
+function formatRange(startISO: string, endISO: string, timezone: string): string {
+  const dateFmt = new Intl.DateTimeFormat("en-US", { timeZone: timezone, dateStyle: "medium" });
+  const timeFmt = new Intl.DateTimeFormat("en-US", { timeZone: timezone, timeStyle: "short" });
+  const start = new Date(startISO);
+  const end = new Date(endISO);
+  return `${dateFmt.format(start)}, ${timeFmt.format(start)} – ${timeFmt.format(end)} (${timezone})`;
+}
+
 export default async function BookingsPage() {
-  const bookings = await backendFetch<Booking[]>("/api/bookings");
+  const [bookings, settings] = await Promise.all([
+    backendFetch<Booking[]>("/api/bookings"),
+    backendFetch<{ timezone: string }>("/api/settings"),
+  ]);
 
   return (
     <div className="p-6 max-w-2xl mx-auto flex flex-col gap-6">
@@ -23,9 +40,7 @@ export default async function BookingsPage() {
           <li key={b.id} className="flex items-center justify-between border border-gray-200 rounded p-3 text-sm">
             <div>
               <p className="font-medium">{b.serviceName ?? "Unknown service"}</p>
-              <p className="text-gray-500">
-                {new Date(b.startsAt).toLocaleString()} – {new Date(b.endsAt).toLocaleTimeString()}
-              </p>
+              <p className="text-gray-500">{formatRange(b.startsAt, b.endsAt, settings.timezone)}</p>
               <p className="text-xs text-gray-400 font-mono mt-1">
                 {b.contactName ? `${b.contactName} · ` : ""}
                 {b.contactWaNumber}
