@@ -63,16 +63,24 @@ const RESPOND_TOOL: ToolDeclaration = {
 // can't hang a job forever — the customer still gets a reply either way.
 const MAX_TOOL_ITERATIONS = 6;
 
+// Loosely typed on purpose: a returned part can carry fields beyond the ones
+// we read (notably `thoughtSignature`, required — see below) that we must
+// echo back verbatim without needing to know what they all mean.
+interface GeminiPart {
+  text?: string;
+  functionCall?: ToolCall;
+  functionResponse?: { name: string; response: { result: unknown } };
+  [key: string]: unknown;
+}
+
 interface GeminiContent {
   // Confirmed against the live API: it rejects a "function" role outright
   // ("Role 'function' is not supported... USER, ASSISTANT, ... MODEL")
   // despite that being the commonly-documented convention elsewhere — a
   // functionResponse part goes back as role "user", same as a plain message.
   role: "user" | "model";
-  parts: Array<{ text?: string; functionCall?: ToolCall; functionResponse?: { name: string; response: { result: unknown } } }>;
+  parts: GeminiPart[];
 }
-
-type GeminiFunctionCallPart = { functionCall: ToolCall };
 
 /**
  * Runs one full reply turn: the model may call zero or more `actionTools`
@@ -109,16 +117,19 @@ export async function runReplyTurn(
     });
     if (!res.ok) throw new Error(`Gemini generateContent failed (${res.status}): ${await res.text()}`);
 
-    const data = (await res.json()) as {
-      candidates?: { content?: { parts?: Array<{ text?: string } | GeminiFunctionCallPart> } }[];
-    };
+    const data = (await res.json()) as { candidates?: { content?: { parts?: GeminiPart[] } }[] };
     const parts = data.candidates?.[0]?.content?.parts ?? [];
-    const callPart = parts.find((p): p is GeminiFunctionCallPart => "functionCall" in p && !!p.functionCall);
+    const callPart = parts.find((p) => !!p.functionCall);
     if (!callPart) {
       throw new Error(`Gemini returned no function call despite toolConfig mode ANY: ${JSON.stringify(data)}`);
     }
-    const call = callPart.functionCall;
-    contents.push({ role: "model", parts: [{ functionCall: call }] });
+    const call = callPart.functionCall!;
+    // Push the model's turn back verbatim (not just a reconstructed
+    // {functionCall} part) — parts can carry a `thoughtSignature` field the
+    // API requires to be echoed back on the next turn for multi-step tool
+    // calling ("Function call is missing a thought_signature..."); dropping
+    // it (as an earlier version of this code did) breaks the very next call.
+    contents.push({ role: "model", parts });
 
     if (call.name === "respond_to_customer") {
       const args = call.args as { reply?: string; escalate?: boolean; escalate_reason?: string };
