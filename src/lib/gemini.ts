@@ -64,7 +64,11 @@ const RESPOND_TOOL: ToolDeclaration = {
 const MAX_TOOL_ITERATIONS = 6;
 
 interface GeminiContent {
-  role: "user" | "model" | "function";
+  // Confirmed against the live API: it rejects a "function" role outright
+  // ("Role 'function' is not supported... USER, ASSISTANT, ... MODEL")
+  // despite that being the commonly-documented convention elsewhere — a
+  // functionResponse part goes back as role "user", same as a plain message.
+  role: "user" | "model";
   parts: Array<{ text?: string; functionCall?: ToolCall; functionResponse?: { name: string; response: { result: unknown } } }>;
 }
 
@@ -126,7 +130,7 @@ export async function runReplyTurn(
 
     const result = await executeTool(call);
     toolCalls.push({ name: call.name, args: call.args, result });
-    contents.push({ role: "function", parts: [{ functionResponse: { name: call.name, response: { result } } }] });
+    contents.push({ role: "user", parts: [{ functionResponse: { name: call.name, response: { result } } }] });
   }
 
   // Iteration budget exhausted without a respond_to_customer call — don't
