@@ -1,4 +1,5 @@
 import { backendFetch } from "@/lib/backend";
+import { formatDateTime } from "@/lib/formatDate";
 import { sendReply, resumeBot } from "./actions";
 import { AutoRefresh } from "@/components/AutoRefresh";
 
@@ -18,9 +19,10 @@ interface FullMessage {
 export default async function ConversationPage(props: PageProps<"/conversations/[id]">) {
   const { id } = await props.params;
 
-  const [conversation, messages] = await Promise.all([
+  const [conversation, messages, settings] = await Promise.all([
     backendFetch<ConversationDetail>(`/api/conversations/${id}`),
     backendFetch<FullMessage[]>(`/api/conversations/${id}/messages`),
+    backendFetch<{ timezone: string }>("/api/settings"),
   ]);
 
   return (
@@ -43,7 +45,7 @@ export default async function ConversationPage(props: PageProps<"/conversations/
         {messages.map((m) => (
           <div key={m.id} className={`max-w-[80%] rounded px-3 py-2 text-sm ${m.direction === "in" ? "bg-gray-100 self-start" : "bg-blue-100 self-end"}`}>
             <p>{m.content}</p>
-            <p className="text-[10px] text-gray-400 mt-1">{new Date(m.createdAt).toLocaleString()}</p>
+            <p className="text-[10px] text-gray-400 mt-1">{formatDateTime(m.createdAt, settings.timezone)}</p>
           </div>
         ))}
         {messages.length === 0 && <p className="text-gray-500 text-sm">No messages yet.</p>}

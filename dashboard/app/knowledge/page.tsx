@@ -1,4 +1,5 @@
 import { backendFetch } from "@/lib/backend";
+import { formatDateTime } from "@/lib/formatDate";
 import { addKnowledge, deleteKnowledge } from "./actions";
 
 interface KnowledgeChunk {
@@ -9,7 +10,10 @@ interface KnowledgeChunk {
 }
 
 export default async function KnowledgePage() {
-  const chunks = await backendFetch<KnowledgeChunk[]>("/api/knowledge");
+  const [chunks, settings] = await Promise.all([
+    backendFetch<KnowledgeChunk[]>("/api/knowledge"),
+    backendFetch<{ timezone: string }>("/api/settings"),
+  ]);
 
   return (
     <div className="p-6 max-w-2xl mx-auto flex flex-col gap-6">
@@ -33,7 +37,7 @@ export default async function KnowledgePage() {
             <div>
               <p className="text-sm whitespace-pre-wrap">{c.content}</p>
               <p className="text-xs text-gray-400 mt-1">
-                {c.source ?? "unknown source"} · {new Date(c.createdAt).toLocaleString()}
+                {c.source ?? "unknown source"} · {formatDateTime(c.createdAt, settings.timezone)}
               </p>
             </div>
             <form action={deleteKnowledge.bind(null, c.id)}>

@@ -1,4 +1,5 @@
 import { backendFetch } from "@/lib/backend";
+import { formatRange } from "@/lib/formatDate";
 import { cancelBookingAction } from "./actions";
 
 interface Booking {
@@ -9,20 +10,6 @@ interface Booking {
   startsAt: string;
   endsAt: string;
   status: "confirmed" | "cancelled";
-}
-
-// Bookings are a real-world commitment in the BUSINESS's own timezone, not
-// whatever timezone the owner's browser happens to be set to — rendering
-// with the default (browser-local) Date formatting previously made a
-// perfectly valid future booking display as a nonsensical past one for
-// anyone viewing the dashboard from outside that timezone. Always pass the
-// tenant's configured timezone explicitly instead.
-function formatRange(startISO: string, endISO: string, timezone: string): string {
-  const dateFmt = new Intl.DateTimeFormat("en-US", { timeZone: timezone, dateStyle: "medium" });
-  const timeFmt = new Intl.DateTimeFormat("en-US", { timeZone: timezone, timeStyle: "short" });
-  const start = new Date(startISO);
-  const end = new Date(endISO);
-  return `${dateFmt.format(start)}, ${timeFmt.format(start)} – ${timeFmt.format(end)} (${timezone})`;
 }
 
 export default async function BookingsPage() {
