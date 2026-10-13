@@ -1,4 +1,4 @@
-Stage 0 — Plumbing only, no AI yet (days 1–3)
+Stage 0 — Plumbing only, no AI yet 
 Goal: prove a message can flow end-to-end before any intelligence is involved.
 
 Get a WhatsApp Cloud API test number from Meta (don't wait for full business verification to start coding — sandbox numbers work immediately for dev).
@@ -6,7 +6,7 @@ Scaffold the API + Postgres + Redis, deploy to Fly.io/Railway.
 Webhook endpoint that verifies the signature, acks in <5s, and just logs the raw payload. Reply with a hardcoded "hello" to any inbound message.
 Done when: you can message the test number from your phone and see it round-trip.
 
-Stage 1 — Core AI reply loop, single hardcoded tenant (days 4–10)
+Stage 1 — Core AI reply loop, single hardcoded tenant 
 Goal: nail the "reply any question 24/7" feature before anything else, for one business only (yours, or a friendly pilot).
 
 Move to async: webhook enqueues a job, a worker processes it — don't call the LLM synchronously in the webhook handler.
@@ -15,55 +15,20 @@ Wire the Claude API with a solid system prompt for that one business — no tool
 Build minimal FAQ ingestion: paste text → chunk → embed → pgvector, and wire RAG into the prompt.
 Done when: it answers real questions about that one business accurately, without hallucinating prices/policies it doesn't know.
 
-Stage 2 — Guardrails and escalation (days 11–14)
+Stage 2 — Guardrails and escalation 
 This is what makes it trustworthy enough to hand to a real business, and it's cheap to build now vs. expensive to retrofit after something goes wrong.
 
-escalate_to_human: low confidence, explicit "talk to a human" request, or negative sentiment → notify you directly (a Telegram/WhatsApp ping to yourself is fine, no dashboard needed yet). ✅ done — Gemini returns a structured `{reply, escalate, escalate_reason}`, escalation pings OWNER_NOTIFY_NUMBER on WhatsApp.
-Hard system-prompt constraints against inventing prices, promises, or policies — test this adversarially, try to trick your own bot. ✅ done — verified it resists prompt injection and won't invent out-of-scope facts.
-Idempotency on Meta's webhook retries (dedupe by message ID) — Meta will redeliver, and without this you'll get duplicate replies in production. ✅ done — BullMQ jobId = WhatsApp message id.
+escalate_to_human: low confidence, explicit "talk to a human" request, or negative sentiment → notify you directly (a Telegram/WhatsApp ping to yourself is fine, no dashboard needed yet).
+Hard system-prompt constraints against inventing prices, promises, or policies — test this adversarially, try to trick your own bot.
+Idempotency on Meta's webhook retries (dedupe by message ID) — Meta will redeliver, and without this you'll get duplicate replies in production.
 
-Pulled forward into Stage 2 (cheap, and skipping them breaks the product — not deferrable like the rest of this stage's original scope):
-- Echo/group-chat filtering — reject messages that appear to echo our own number, or multi-contact (group-like) payloads. Without this a bot can loop-reply to itself or group noise; that's a number-ban-class bug, not a nice-to-have. ✅ done, in webhook.ts.
-- Per-contact rate limiting — hard cap on messages/minute per contact (config: RATE_LIMIT_WINDOW_SECONDS / RATE_LIMIT_MAX_MESSAGES), a generic circuit breaker against any reply loop or spam burst regardless of cause. This is also §7 of the architecture doc's non-negotiable list. ✅ done.
-- Message buffering/debounce — wait ~7s of silence after the last inbound message before replying, concatenating anything that arrived in that window into one turn, so "hey" / "I wanted to ask" / "about pricing" sent as 3 messages gets one coherent reply instead of three disjointed ones. Implemented as a delayed BullMQ job per contact that gets reset on every new message; only the job that survives the delay untouched actually fires. ✅ done.
-- Typing indicator — shown the moment the debounced reply starts processing (native WhatsApp Cloud API call, tied to marking the last inbound message read). ✅ done.
-- Basic voice note handling — download the audio, transcribe it with Gemini (multimodal, no separate provider needed), then run the transcript through the normal text pipeline. Images/documents/other types: acknowledged and escalated to a human, never silently dropped — no "smart" media analysis yet. ✅ done.
-- Customer memory across sessions — audited, not a gap: conversations/messages are plain Postgres rows keyed by wa_number, confirmed persisting correctly across hours and multiple process restarts. This was already correct per the architecture doc's §4 data model; no fix needed.
+Stage 3 — Make it tenant-shaped, even with just 1–2 tenants 
+Introduce tenant_id + RLS + a tenant config table now, even though you only have one customer — this is the expensive thing to retrofit later, cheap to do now.
+Build a bare internal tool (even a script) to onboard a new tenant: connect their WA number, paste their FAQ content.
+Onboard a second real pilot business using only that tool — this is the actual proof the architecture holds up, not just theory.
 
-Explicitly deferred to Stage 3+ (need real conversation volume / CRM infra this project doesn't have yet):
-- Cheap keyword-shortcut routing for 3-5 obvious intents (hours, location, "talk to human") that skip the LLM entirely — worth doing once there's a real pilot's FAQ distribution to hardcode against, not from a guess now.
-- Full intent-routing classifier (tiered model routing) — needs real volume to tune.
-- Lead qualification (budget/timeline/need questions, contact scoring) — depends on the CRM tagging infra in §5.4 of the architecture doc, which is Stage 3+ work.
-
-Stage 3 — Make it tenant-shaped, even with just 1–2 tenants (days 15–21) — ✅ done (2026-09-01)
-Introduce tenant_id + RLS + a tenant config table now, even though you only have one customer — this is the expensive thing to retrofit later, cheap to do now. ✅ done — `tenants` table + tenant_id on conversations/messages/knowledge_chunks. Found and fixed a real gap along the way: the DB role was a Postgres superuser, which silently bypasses RLS entirely (FORCE ROW LEVEL SECURITY doesn't override that) — created a separate restricted `captus_app` role for the app to actually connect as, migrate.ts still uses the superuser for DDL only.
-Build a bare internal tool (even a script) to onboard a new tenant: connect their WA number, paste their FAQ content. ✅ done — `npm run onboard -- <phone_number_id> "<name>" "<description>"`, `npm run ingest -- <phone_number_id> <faq.txt>`.
-Onboard a second real pilot business using only that tool — this is the actual proof the architecture holds up, not just theory. ✅ done — onboarded "Kopi Corner" (a second dogfood business) via the script alone. Verified real cross-tenant isolation two ways: (1) a raw RLS test (tenant A/B each see only their own rows), (2) a full-pipeline test — asking Kopi Corner's number a Captus-pricing question retrieved zero Captus knowledge chunks and correctly said "don't know," and vice versa. Not assumed — tested.
-
-Stage 4 — Minimal owner-facing surface (days 22–28) — ✅ done (2026-09-02)
+Stage 4 — Minimal owner-facing surface 
 Bare dashboard: conversation list, manual reply (human takeover), FAQ edit. Skip visual polish, use Clerk/Supabase Auth off the shelf.
 This is your "complete working agent" bar: a real business gets accurate 24/7 replies, escalates safely when unsure, and the owner can see and step into conversations.
-✅ done — Next.js dashboard (Clerk auth): conversation list + thread view with auto-refresh polling, manual reply/resume (flips `conversations.status`, worker goes silent per architecture doc §5.6), FAQ list/add/delete. Went beyond the original spec: a platform-admin area (`/admin`) to onboard new tenants and link a client's Clerk account by email, entirely from the UI instead of the CLI scripts.
-✅ done — deployed for real, not just locally: Fastify backend + BullMQ worker + Postgres (pgvector) + Redis + the dashboard, all on Railway, connected to GitHub (`kens1ang/captuscc`) for auto-deploy on push to `main`. Custom domain `app.captus.cc` live over HTTPS. The old Cloudflare tunnel is fully retired.
-✅ done, along the way — found and fixed a real correctness bug: the worker/dashboard were recording a reply as "sent" in the DB *before* confirming WhatsApp actually delivered it, so a failed send (e.g. a Meta-side rejection) still showed as delivered in the dashboard. Fixed to only persist after a confirmed send.
 
 Only after this runs reliably with 2–3 real pilots for a couple of weeks do you move to the earlier roadmap — booking, then invoicing, then CRM, then follow-ups. The reason for that order specifically: booking and invoicing introduce real business risk (wrong slot, wrong price) that you don't want compounding on top of a conversational core you haven't stress-tested yet. A bot that confidently answers FAQs wrong is embarrassing; a bot that confidently generates a wrong invoice is a churned customer.
-
-**We're at the start of that observation window now, not past it** — only one tenant exists (Captus itself), running for hours, not weeks. Next milestone is not new features — it's finding a real second/third pilot business and letting this run untouched for a couple of weeks before touching booking/invoicing/CRM.
-
-**Kopi Corner (self-made test tenant) was removed on 2026-09-03** — its DB row, conversation, messages, knowledge chunks, and linked dashboard user were deleted. Root cause: Meta's WhatsApp Cloud API gives one test number per App ID, period — no matter how many WhatsApp accounts or Business Portfolios you create under it, you can't run two independent pilot numbers in parallel without a real phone number of your own registered to the platform. Multi-tenancy itself (DB/RLS/dashboard) was never the blocker; number provisioning was. The Kopi Corner test number stays registered on the Meta side unless removed there too (a manual step in WhatsApp Manager, not something scriptable from here).
-
-**2026-09-08 note:** the "wait for 2–3 real pilots first" gate above was explicitly overridden — moving on to booking now rather than waiting.
-
-Stage 5 — Booking (per architecture doc §5.2/§5.1) — backend + dashboard built 2026-09-08, not yet live-tested with a real booking end to end (blocked on Google OAuth credentials — see below).
-- Schema: `services` (bookable things + duration), `business_hours` (weekly recurring open intervals), `bookings` (local record + `google_event_id`), `google_calendar_connections` (per-tenant OAuth, refresh token encrypted at rest via `lib/crypto.ts`). All RLS'd the same way as every other tenant-scoped table. `messages.tool_calls jsonb` added as the audit trail the architecture doc calls for.
-- `lib/availability.ts` computes real available slots (tenant's weekly hours ∩ not already locally booked ∩ not busy on the tenant's actual Google Calendar) — never something the model invents. Re-validated again at the moment of booking (`isSlotAvailable`), not just trusted from an earlier check.
-- `lib/gemini.ts`'s `generateReply` was replaced with `runReplyTurn`, a real tool-calling agent loop (the architecture doc's §5.1 design, not the old single-shot structured-JSON call) — `check_availability` / `book_appointment` tools plus a mandatory `respond_to_customer` tool that's the only way the model's turn actually reaches the customer. Empty tool list (no services configured) behaves identically to the old FAQ-only flow.
-- Handled the one real correctness trap this introduces: if a booking tool call succeeds (real Calendar event + DB row already written) but the WhatsApp confirmation send then fails, the job does NOT get retried the normal way — retrying would re-run the LLM/tools from scratch and risk a genuine duplicate booking. Instead it's recorded as-is and escalated to a human to confirm with the customer directly.
-- Dashboard: `/settings` (Google Calendar connect/disconnect, timezone, services, weekly hours) and `/bookings` (upcoming bookings, cancel).
-- **Blocked on external setup, not code:** Google Cloud OAuth client (Client ID/Secret) needs to be created in Google Cloud Console and handed over before this can be tested against a real calendar — `TOKEN_ENCRYPTION_KEY` and `GOOGLE_REDIRECT_URI` are already set on Railway, `GOOGLE_CLIENT_ID`/`GOOGLE_CLIENT_SECRET` are not yet.
-- **2026-09-08, live-tested and iterated on real bookings**, several real bugs found and fixed along the way: `role: "function"` rejected by the live Gemini API (needs `role: "user"`); a missing `thoughtSignature` on multi-step tool calls (must be echoed back verbatim, not reconstructed); `check_availability` defaulting to today when a customer said "tomorrow" and today already had enough slots to hit the return cap before ever reaching tomorrow (added a `date` param); the dashboard's cancelled bookings never disappearing from the list (missing a status filter) turning a second click into a visible error; dashboard timestamps rendering in the *viewer's* browser timezone instead of the tenant's configured one (a correct 2:30pm SGT booking displayed as 6:30am to anyone outside that zone) — now a shared `dashboard/lib/formatDate.ts` always uses the tenant's real timezone and DD/MM/YYYY.
-- Bot can now also manage bookings it already made: `list_my_bookings`, `cancel_appointment`, `reschedule_appointment` (validates the new slot before touching the old booking, so a failed reschedule never leaves the customer with neither). booking_id is ownership-checked server-side against the actual WhatsApp sender, not just trusted from the model's tool args.
-- Booking reminders: `lib/bookingReminders.ts` schedules a delayed BullMQ job per booking (default 24h lead time, cancelled on cancel/reschedule) sent via a WhatsApp message template (`npm run create-reminder-template`) — required because a reminder that far ahead is almost always outside the 24h customer-service window plain text needs. Owner-side notification (new/changed bookings) deliberately NOT built — using Google Calendar's own native notification settings instead, by request. `booking_reminder` template submitted to Meta, awaiting approval.
-- Tracking a WABA id per tenant now (`tenants.whatsapp_business_account_id`, settable at onboarding or after) — templates are scoped to a WhatsApp Business Account, and a real client has their own, separate from Captus's test one.
-- Documents (menus, catalogs, price lists): a `documents` table (file bytes stored directly in Postgres — fine at SME scale, same call as pgvector's brute-force search), a `/settings`-adjacent `/documents` dashboard page to upload/delete them, and a `send_document` tool the reply agent calls when a customer asks for one by name. Served via a public, unauthenticated `/files/:tenantId/:documentId` route (Meta's servers fetch the link directly) — correctness still comes from RLS via the tenantId in the URL, not from the route being hidden.

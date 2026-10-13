@@ -9,6 +9,7 @@
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
     "start:worker": "node dist/worker.js",
+    "start:all": "node dist/main.js",
     "typecheck": "tsc --noEmit",
     "migrate": "tsx src/db/migrate.ts",
     "ingest": "tsx src/scripts/ingest-faq.ts",

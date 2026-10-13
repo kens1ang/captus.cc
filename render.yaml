@@ -1,0 +1,66 @@
+# Render Blueprint — free tier. Server + worker run in one process (src/main.ts)
+# because Render has no free background workers. Postgres lives on Neon (free,
+# pgvector, doesn't expire) — paste its connection strings when prompted.
+services:
+  - type: web
+    name: captus-backend
+    runtime: node
+    plan: free
+    region: singapore
+    buildCommand: npm ci && npm run build
+    # Migrations are idempotent, so they just run on every boot.
+    startCommand: npm run migrate && npm run start:all
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: REDIS_URL
+        fromService:
+          type: keyvalue
+          name: captus-redis
+          property: connectionString
+      # Neon: owner connection (migrations only) and the restricted captus_app one
+      - key: DATABASE_URL
+        sync: false
+      - key: APP_DATABASE_URL
+        sync: false
+      - key: APP_DB_PASSWORD
+        sync: false
+      - key: WHATSAPP_ACCESS_TOKEN
+        sync: false
+      - key: WHATSAPP_VERIFY_TOKEN
+        sync: false
+      - key: WHATSAPP_APP_SECRET
+        sync: false
+      - key: WHATSAPP_PHONE_NUMBER_ID
+        sync: false
+      - key: BUSINESS_NAME
+        sync: false
+      - key: BUSINESS_DESCRIPTION
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OWNER_NOTIFY_NUMBER
+        sync: false
+      - key: CLERK_SECRET_KEY
+        sync: false
+      - key: DASHBOARD_ORIGIN
+        sync: false
+      - key: BACKEND_PUBLIC_URL
+        sync: false
+      - key: GOOGLE_CLIENT_ID
+        sync: false
+      - key: GOOGLE_CLIENT_SECRET
+        sync: false
+      - key: GOOGLE_REDIRECT_URI
+        sync: false
+      - key: TOKEN_ENCRYPTION_KEY
+        sync: false
+
+  - type: keyvalue
+    name: captus-redis
+    plan: free
+    region: singapore
+    # BullMQ requires keys never be evicted
+    maxmemoryPolicy: noeviction
+    ipAllowList: []
