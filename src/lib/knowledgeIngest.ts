@@ -1,6 +1,7 @@
 import { embedText } from "./gemini.js";
-import { insertKnowledgeChunk } from "../db/knowledge.js";
+import { insertKnowledgeChunk, deleteKnowledgeBySource } from "../db/knowledge.js";
 import { withTenant } from "../db/tenantContext.js";
+import type { PoolClient } from "pg";
 
 export function chunkText(text: string, maxLen = 800): string[] {
   const paragraphs = text
@@ -48,4 +49,33 @@ export async function ingestKnowledgeText(tenantId: string, text: string, source
     await withTenant(tenantId, (client) => insertKnowledgeChunk(client, tenantId, chunk, embedding, source));
   });
   return chunks.length;
+}
+
+/**
+ * Embeds pre-split chunks, then — in one transaction — swaps out everything
+ * previously stored under `source` for them, and runs `alsoInTransaction`
+ * (e.g. saving the section that produced them) so the stored form and the
+ * indexed form can never disagree. Embedding happens first, outside the
+ * transaction, so no DB connection is held across those network calls, and
+ * an embedding failure leaves the old chunks untouched.
+ */
+export async function replaceKnowledgeSource(
+  tenantId: string,
+  source: string,
+  chunks: string[],
+  alsoInTransaction?: (client: PoolClient) => Promise<void>,
+): Promise<number> {
+  const embedded: { chunk: string; embedding: number[] }[] = [];
+  await mapWithConcurrency(chunks, INGEST_CONCURRENCY, async (chunk) => {
+    embedded.push({ chunk, embedding: await embedText(chunk) });
+  });
+
+  await withTenant(tenantId, async (client) => {
+    await deleteKnowledgeBySource(client, source);
+    for (const { chunk, embedding } of embedded) {
+      await insertKnowledgeChunk(client, tenantId, chunk, embedding, source);
+    }
+    await alsoInTransaction?.(client);
+  });
+  return embedded.length;
 }

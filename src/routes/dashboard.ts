@@ -1,9 +1,11 @@
 import type { FastifyInstance } from "fastify";
 import { requireDashboardAuth } from "../lib/clerkAuth.js";
 import { withTenant } from "../db/tenantContext.js";
-import { getTenantById, updateTenantTimezone } from "../db/tenants.js";
+import { getTenantById, updateTenantTimezone, updateTenantProfile } from "../db/tenants.js";
 import { sendTextMessage } from "../lib/whatsapp.js";
-import { ingestKnowledgeText } from "../lib/knowledgeIngest.js";
+import { ingestKnowledgeText, replaceKnowledgeSource } from "../lib/knowledgeIngest.js";
+import { listBusinessInfo, upsertBusinessInfo } from "../db/businessInfo.js";
+import { isSectionKey, normalizeSection, renderIndexedChunks, knowledgeSourceFor, INDEXED_SECTIONS } from "../lib/businessInfo.js";
 import {
   listConversations,
   getConversation,
@@ -31,7 +33,15 @@ export async function dashboardRoutes(app: FastifyInstance) {
   // duplicating the tenant-scoped conversation/knowledge fetch just for that.
   app.get("/api/me", async (req) => {
     const { tenantId, email, role, isAdmin } = req.dashboardUser!;
-    return { tenantId, email, role, isAdmin };
+    const tenant = await getTenantById(tenantId);
+    return {
+      tenantId,
+      email,
+      role,
+      isAdmin,
+      businessName: tenant?.businessName ?? "",
+      whatsappPhoneNumberId: tenant?.whatsappPhoneNumberId ?? "",
+    };
   });
 
   app.get("/api/conversations", async (req) => {
@@ -113,6 +123,52 @@ export async function dashboardRoutes(app: FastifyInstance) {
     if (!deleted) return reply.code(404).send({ error: "Chunk not found" });
     return { ok: true };
   });
+
+  // --- Structured business info (dashboard Knowledge pages) — see lib/businessInfo.ts ---
+
+  app.get("/api/business-info", async (req) => {
+    const tenantId = req.dashboardUser!.tenantId;
+    const [tenant, rows] = await Promise.all([
+      getTenantById(tenantId),
+      withTenant(tenantId, (client) => listBusinessInfo(client)),
+    ]);
+    return {
+      businessName: tenant?.businessName ?? "",
+      businessDescription: tenant?.businessDescription ?? "",
+      sections: Object.fromEntries(rows.map((r) => [r.section, { data: r.data, updatedAt: r.updatedAt }])),
+    };
+  });
+
+  app.put<{ Params: { section: string }; Body: { data: unknown; businessName?: string; businessDescription?: string } }>(
+    "/api/business-info/:section",
+    async (req, reply) => {
+      const tenantId = req.dashboardUser!.tenantId;
+      const { section } = req.params;
+      if (!isSectionKey(section)) return reply.code(404).send({ error: "Unknown section" });
+      const data = normalizeSection(section, req.body?.data);
+
+      // The business name/description predate business_info and live on
+      // `tenants` (the prompt and admin page read them there), so the profile
+      // section writes them through rather than storing a second copy.
+      if (section === "profile") {
+        const businessName = req.body?.businessName?.trim();
+        if (!businessName) return reply.code(400).send({ error: "businessName is required" });
+        const businessDescription = (req.body?.businessDescription ?? "").trim().slice(0, 3000);
+        await updateTenantProfile(tenantId, businessName.slice(0, 200), businessDescription);
+      }
+
+      if (INDEXED_SECTIONS.includes(section)) {
+        const chunks = renderIndexedChunks(section, data);
+        const chunksIndexed = await replaceKnowledgeSource(tenantId, knowledgeSourceFor(section), chunks, (client) =>
+          upsertBusinessInfo(client, tenantId, section, data),
+        );
+        return { ok: true, data, chunksIndexed };
+      }
+
+      await withTenant(tenantId, (client) => upsertBusinessInfo(client, tenantId, section, data));
+      return { ok: true, data };
+    },
+  );
 
   // --- Stage 5: booking settings (services, business hours) + bookings list ---
 

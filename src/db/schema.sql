@@ -196,3 +196,20 @@ CREATE TABLE IF NOT EXISTS documents (
 );
 ALTER TABLE documents ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES tenants(id);
 CREATE INDEX IF NOT EXISTS documents_tenant_idx ON documents (tenant_id);
+
+-- Structured business info the owner fills in on the dashboard's Knowledge
+-- pages, one row per section (lib/businessInfo.ts owns the section list and
+-- each one's shape). Two kinds of section: "profile"-style ones (about,
+-- location/contact, assistant style) go into every system prompt verbatim —
+-- small, and asked about constantly — while "catalog"-style ones (products,
+-- policies, FAQs) are rendered into knowledge_chunks under the source
+-- `section:<key>` and retrieved via RAG. Saving a section replaces its own
+-- chunks wholesale, so edits never leave stale duplicates behind.
+CREATE TABLE IF NOT EXISTS business_info (
+  tenant_id uuid NOT NULL REFERENCES tenants(id),
+  section text NOT NULL,
+  data jsonb NOT NULL DEFAULT '{}'::jsonb,
+  updated_at timestamptz NOT NULL DEFAULT now(),
+  PRIMARY KEY (tenant_id, section)
+);
+CREATE INDEX IF NOT EXISTS knowledge_chunks_tenant_source_idx ON knowledge_chunks (tenant_id, source);

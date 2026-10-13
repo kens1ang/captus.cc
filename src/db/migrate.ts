@@ -32,6 +32,7 @@ const ENABLE_RLS_SQL = [
   "bookings",
   "google_calendar_connections",
   "documents",
+  "business_info",
 ]
   .map(
     (table) => `
@@ -71,7 +72,7 @@ async function main() {
   await pool.query(`GRANT USAGE ON SCHEMA public TO captus_app`);
   await pool.query(
     `GRANT SELECT, INSERT, UPDATE, DELETE ON tenants, users, conversations, messages, knowledge_chunks,
-     services, business_hours, bookings, google_calendar_connections, documents TO captus_app`,
+     services, business_hours, bookings, google_calendar_connections, documents, business_info TO captus_app`,
   );
   console.log("Granted captus_app the privileges it needs on tenant-scoped tables.");
 

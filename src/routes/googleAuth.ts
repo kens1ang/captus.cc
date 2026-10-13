@@ -26,24 +26,24 @@ export async function googleAuthRoutes(app: FastifyInstance) {
 
     if (error || !code || !state) {
       req.log.warn({ error }, "Google OAuth callback missing code/state or denied");
-      return reply.redirect(`${dashboardUrl}/settings?google=error`);
+      return reply.redirect(`${dashboardUrl}/settings/integrations?google=error`);
     }
 
     const payload = verifySignedState(state);
     const tenantId = payload?.split(":")[0];
     if (!tenantId) {
       req.log.warn("Google OAuth callback got an invalid/tampered state param");
-      return reply.redirect(`${dashboardUrl}/settings?google=error`);
+      return reply.redirect(`${dashboardUrl}/settings/integrations?google=error`);
     }
 
     try {
       const { accessToken, refreshToken } = await exchangeCodeForTokens(code);
       const connectedEmail = await getPrimaryCalendarEmail(accessToken);
       await withTenant(tenantId, (client) => saveGoogleCalendarConnection(client, tenantId, refreshToken, connectedEmail));
-      return reply.redirect(`${dashboardUrl}/settings?google=connected`);
+      return reply.redirect(`${dashboardUrl}/settings/integrations?google=connected`);
     } catch (err) {
       req.log.error({ err }, "Google OAuth token exchange failed");
-      return reply.redirect(`${dashboardUrl}/settings?google=error`);
+      return reply.redirect(`${dashboardUrl}/settings/integrations?google=error`);
     }
   });
 

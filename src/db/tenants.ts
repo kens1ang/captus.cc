@@ -83,3 +83,11 @@ export async function listTenants(): Promise<Tenant[]> {
   const result = await pool.query<TenantRow>(`SELECT ${SELECT_COLUMNS} FROM tenants ORDER BY created_at`);
   return result.rows.map(toTenant);
 }
+
+export async function updateTenantProfile(id: string, businessName: string, businessDescription: string): Promise<Tenant | null> {
+  const result = await pool.query<TenantRow>(
+    `UPDATE tenants SET business_name = $2, business_description = $3 WHERE id = $1 RETURNING ${SELECT_COLUMNS}`,
+    [id, businessName, businessDescription],
+  );
+  return result.rows[0] ? toTenant(result.rows[0]) : null;
+}

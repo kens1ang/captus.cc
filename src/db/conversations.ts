@@ -138,12 +138,29 @@ export interface ConversationSummary {
   waNumber: string;
   status: ConversationStatus;
   lastMessageAt: string;
+  /** Newest message in the thread (either direction) — the inbox list's preview line. */
+  lastMessage: string | null;
+  lastMessageDirection: "in" | "out" | null;
 }
 
 /** Dashboard's conversation list — most recently active first. */
 export async function listConversations(client: PoolClient, limit = 100): Promise<ConversationSummary[]> {
-  const result = await client.query<{ id: string; wa_number: string; status: ConversationStatus; last_message_at: string }>(
-    `SELECT id, wa_number, status, last_message_at FROM conversations ORDER BY last_message_at DESC LIMIT $1`,
+  const result = await client.query<{
+    id: string;
+    wa_number: string;
+    status: ConversationStatus;
+    last_message_at: string;
+    last_message: string | null;
+    last_direction: "in" | "out" | null;
+  }>(
+    // LATERAL + LIMIT 1 rides messages_conversation_created_idx — one index
+    // probe per conversation, not a scan of every message.
+    `SELECT c.id, c.wa_number, c.status, c.last_message_at, m.content AS last_message, m.direction AS last_direction
+     FROM conversations c
+     LEFT JOIN LATERAL (
+       SELECT content, direction FROM messages WHERE conversation_id = c.id ORDER BY created_at DESC LIMIT 1
+     ) m ON true
+     ORDER BY c.last_message_at DESC LIMIT $1`,
     [limit],
   );
   return result.rows.map((r) => ({
@@ -151,6 +168,8 @@ export async function listConversations(client: PoolClient, limit = 100): Promis
     waNumber: r.wa_number,
     status: r.status,
     lastMessageAt: r.last_message_at,
+    lastMessage: r.last_message,
+    lastMessageDirection: r.last_direction,
   }));
 }
 

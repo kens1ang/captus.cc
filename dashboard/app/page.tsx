@@ -1,72 +1,211 @@
 import Link from "next/link";
-import { backendFetch, BackendError } from "@/lib/backend";
-import { formatDateTime } from "@/lib/formatDate";
+import { ArrowRight, BookOpen, CalendarDays, CheckCircle2, Circle, Inbox, MessagesSquare, Sparkles, TriangleAlert } from "lucide-react";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { ContactAvatar, StatusBadge } from "@/components/ConversationStatus";
+import { Badge, ButtonLink, Card, CardHeader, EmptyState, Page, PageHeader, cx } from "@/components/ui";
+import { formatPhone, formatRange, formatRelative } from "@/lib/formatDate";
+import {
+  buildSetupSteps,
+  getBookings,
+  getBusinessHours,
+  getBusinessInfo,
+  getConversations,
+  getDocuments,
+  getGoogleStatus,
+  getKnowledgeChunks,
+  getMe,
+  getServices,
+  getSettings,
+} from "@/lib/data";
 
-interface ConversationSummary {
-  id: string;
-  waNumber: string;
-  status: "bot" | "needs_human" | "human_active";
-  lastMessageAt: string;
+function isWithinLastDay(iso: string): boolean {
+  return Date.now() - new Date(iso).getTime() < 86400_000;
 }
 
-const STATUS_LABEL: Record<ConversationSummary["status"], string> = {
-  bot: "Bot handling",
-  needs_human: "Needs human",
-  human_active: "Human active",
-};
+export default async function OverviewPage() {
+  const [me, settings, conversations, info, hours, documents, google, services, bookings, chunks] = await Promise.all([
+    getMe(),
+    getSettings(),
+    getConversations(),
+    getBusinessInfo(),
+    getBusinessHours(),
+    getDocuments(),
+    getGoogleStatus(),
+    getServices(),
+    getBookings(),
+    getKnowledgeChunks(),
+  ]);
+  const tz = settings.timezone;
+  const steps = buildSetupSteps({ info, hours, documents, google, services });
+  const required = steps.filter((s) => !s.optional);
+  const requiredDone = required.filter((s) => s.done).length;
+  const allDone = steps.every((s) => s.done);
+  const progress = Math.round((steps.filter((s) => s.done).length / steps.length) * 100);
 
-const STATUS_CLASS: Record<ConversationSummary["status"], string> = {
-  bot: "bg-gray-100 text-gray-700",
-  needs_human: "bg-amber-100 text-amber-800",
-  human_active: "bg-blue-100 text-blue-800",
-};
+  const needsYou = conversations.filter((c) => c.status === "needs_human");
+  const activeToday = conversations.filter((c) => isWithinLastDay(c.lastMessageAt)).length;
+  const upcoming = bookings.filter((b) => b.status === "confirmed");
 
-export default async function ConversationsPage() {
-  let conversations: ConversationSummary[] = [];
-  let timezone = "Asia/Singapore";
-  let notLinked = false;
-
-  try {
-    [conversations, { timezone }] = await Promise.all([
-      backendFetch<ConversationSummary[]>("/api/conversations"),
-      backendFetch<{ timezone: string }>("/api/settings"),
-    ]);
-  } catch (err) {
-    if (err instanceof BackendError && err.status === 403) {
-      notLinked = true;
-    } else {
-      throw err;
-    }
-  }
-
-  if (notLinked) {
-    return (
-      <div className="p-8">
-        <p className="text-gray-600">
-          Your account isn&apos;t linked to a business yet. Ask whoever runs the backend to run{" "}
-          <code className="bg-gray-100 px-1 rounded">npm run link-user</code> for your Clerk user id.
-        </p>
-      </div>
-    );
-  }
+  const stats = [
+    { label: "Needs your reply", value: needsYou.length, icon: TriangleAlert, href: "/conversations?filter=needs_human", tone: needsYou.length ? "warn" : "" },
+    { label: "Active in last 24h", value: activeToday, icon: MessagesSquare, href: "/conversations" },
+    { label: "Upcoming bookings", value: upcoming.length, icon: CalendarDays, href: "/bookings" },
+    { label: "Knowledge entries", value: chunks.length, icon: BookOpen, href: "/knowledge" },
+  ];
 
   return (
-    <div className="p-6 max-w-3xl mx-auto">
-      <AutoRefresh />
-      <h1 className="text-lg font-semibold mb-4">Conversations</h1>
-      {conversations.length === 0 && <p className="text-gray-500">No conversations yet.</p>}
-      <ul className="divide-y divide-gray-200 border border-gray-200 rounded">
-        {conversations.map((c) => (
-          <li key={c.id}>
-            <Link href={`/conversations/${c.id}`} className="flex items-center justify-between px-4 py-3 hover:bg-gray-50">
-              <span className="font-mono text-sm">{c.waNumber}</span>
-              <span className={`text-xs px-2 py-0.5 rounded ${STATUS_CLASS[c.status]}`}>{STATUS_LABEL[c.status]}</span>
-              <span className="text-xs text-gray-400">{formatDateTime(c.lastMessageAt, timezone)}</span>
-            </Link>
-          </li>
+    <Page wide>
+      <AutoRefresh intervalMs={15000} />
+      <PageHeader
+        eyebrow={me.businessName}
+        title="Overview"
+        description="What your WhatsApp assistant is doing, and what still needs setting up."
+        actions={
+          <ButtonLink href="/conversations" variant="secondary">
+            <Inbox className="size-4" /> Open inbox
+          </ButtonLink>
+        }
+      />
+
+      {!allDone && (
+        <Card>
+          <div className="flex flex-col gap-4 border-b border-line px-5 py-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <div className="flex items-center gap-2">
+                <Sparkles className="size-4 text-brand" />
+                <h2 className="text-sm font-semibold">Set up your assistant</h2>
+              </div>
+              <p className="mt-0.5 text-sm text-muted">
+                {requiredDone < required.length
+                  ? `${required.length - requiredDone} essential step${required.length - requiredDone === 1 ? "" : "s"} left — the more it knows, the fewer chats it hands to you.`
+                  : "Essentials done. The optional steps below make it even more useful."}
+              </p>
+            </div>
+            <div className="flex items-center gap-3 sm:w-56">
+              <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-subtle">
+                <div className="h-full rounded-full bg-brand transition-all" style={{ width: `${progress}%` }} />
+              </div>
+              <span className="text-xs font-medium text-muted tabular-nums">{progress}%</span>
+            </div>
+          </div>
+          <ul className="divide-y divide-line">
+            {steps.map((step) => (
+              <li key={step.key}>
+                <Link href={step.href} className="group flex items-center gap-4 px-5 py-3.5 transition-colors hover:bg-hover">
+                  {step.done ? (
+                    <CheckCircle2 className="size-5 shrink-0 text-brand" />
+                  ) : (
+                    <Circle className="size-5 shrink-0 text-line-strong" />
+                  )}
+                  <div className="min-w-0 flex-1">
+                    <p className={cx("text-sm font-medium", step.done ? "text-muted line-through decoration-faint" : "text-fg")}>
+                      {step.title}
+                      {step.optional && <span className="ml-2 text-xs font-normal text-faint no-underline">Optional</span>}
+                    </p>
+                    {!step.done && <p className="mt-0.5 text-sm text-muted">{step.description}</p>}
+                  </div>
+                  <ArrowRight className="size-4 shrink-0 text-faint transition-transform group-hover:translate-x-0.5 group-hover:text-fg" />
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+        {stats.map(({ label, value, icon: Icon, href, tone }) => (
+          <Link
+            key={label}
+            href={href}
+            className="group rounded-lg border border-line bg-panel p-4 shadow-xs transition-colors hover:border-line-strong"
+          >
+            <div className="flex items-center justify-between">
+              <p className="text-sm text-muted">{label}</p>
+              <Icon className={cx("size-4", tone === "warn" ? "text-warn" : "text-faint")} />
+            </div>
+            <p className={cx("mt-3 text-3xl font-semibold tracking-tight tabular-nums", tone === "warn" && "text-warn")}>{value}</p>
+          </Link>
         ))}
-      </ul>
-    </div>
+      </div>
+
+      <div className="grid gap-6 lg:grid-cols-5">
+        <Card className="lg:col-span-3">
+          <CardHeader
+            title="Recent conversations"
+            description="Latest chats across all customers."
+            actions={
+              <ButtonLink href="/conversations" variant="ghost" size="sm">
+                View all <ArrowRight className="size-3.5" />
+              </ButtonLink>
+            }
+          />
+          {conversations.length === 0 ? (
+            <EmptyState
+              icon={MessagesSquare}
+              title="No conversations yet"
+              description="When a customer messages your WhatsApp number, the chat shows up here."
+            />
+          ) : (
+            <ul className="divide-y divide-line">
+              {conversations.slice(0, 6).map((c) => (
+                <li key={c.id}>
+                  <Link href={`/conversations/${c.id}`} className="flex items-center gap-3 px-5 py-3 transition-colors hover:bg-hover">
+                    <ContactAvatar waNumber={c.waNumber} size="sm" />
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-2">
+                        <p className="truncate text-sm font-medium">{formatPhone(c.waNumber)}</p>
+                        {c.status !== "bot" && <StatusBadge status={c.status} />}
+                      </div>
+                      <p className="truncate text-sm text-muted">
+                        {c.lastMessageDirection === "out" && <span className="text-faint">You: </span>}
+                        {c.lastMessage ?? "—"}
+                      </p>
+                    </div>
+                    <span className="shrink-0 text-xs text-faint">{formatRelative(c.lastMessageAt, tz)}</span>
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+
+        <Card className="lg:col-span-2">
+          <CardHeader
+            title="Next bookings"
+            actions={
+              <ButtonLink href="/bookings" variant="ghost" size="sm">
+                View all <ArrowRight className="size-3.5" />
+              </ButtonLink>
+            }
+          />
+          {upcoming.length === 0 ? (
+            <EmptyState
+              icon={CalendarDays}
+              title="No upcoming bookings"
+              description={services.length ? "Customers can book over WhatsApp — new ones appear here." : "Turn on bookings to let customers schedule over WhatsApp."}
+              action={
+                !services.length && (
+                  <ButtonLink href="/bookings/setup" size="sm">
+                    Set up bookings
+                  </ButtonLink>
+                )
+              }
+            />
+          ) : (
+            <ul className="divide-y divide-line">
+              {upcoming.slice(0, 5).map((b) => (
+                <li key={b.id} className="flex items-start justify-between gap-3 px-5 py-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-medium">{b.serviceName ?? "Appointment"}</p>
+                    <p className="truncate text-xs text-muted">{b.contactName ?? formatPhone(b.contactWaNumber)}</p>
+                  </div>
+                  <Badge>{formatRange(b.startsAt, b.endsAt, tz)}</Badge>
+                </li>
+              ))}
+            </ul>
+          )}
+        </Card>
+      </div>
+    </Page>
   );
 }

@@ -1,19 +1,97 @@
 @import "tailwindcss";
 
+/*
+ * Design tokens. Every surface/text/border color in the app is one of these,
+ * exposed to Tailwind as bg-canvas / text-fg / border-line etc. — so dark
+ * mode is just this variable swap, with no `dark:` variants scattered around
+ * the components.
+ */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --canvas: #fafafa;
+  --panel: #ffffff;
+  --subtle: #f4f4f5;
+  --hover: #f0f0f1;
+  --line: #e6e6e8;
+  --line-strong: #d4d4d8;
+  --fg: #18181b;
+  --muted: #63636b;
+  --faint: #9a9aa2;
+  --brand: #10a37f;
+  --brand-strong: #0b8a6a;
+  --brand-soft: #e7f6f1;
+  --brand-fg: #ffffff;
+  --warn: #b45309;
+  --warn-soft: #fef3e2;
+  --danger: #dc2626;
+  --danger-soft: #fdecec;
+  --info: #2563eb;
+  --info-soft: #e9f0fe;
+  --bubble-out: #dcf5ec;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --canvas: #121214;
+    --panel: #18181b;
+    --subtle: #1f1f23;
+    --hover: #232328;
+    --line: #2a2a30;
+    --line-strong: #3a3a42;
+    --fg: #ededef;
+    --muted: #a1a1aa;
+    --faint: #6b6b74;
+    --brand: #22c38e;
+    --brand-strong: #3fd9a4;
+    --brand-soft: #12302a;
+    --brand-fg: #06140f;
+    --warn: #f5a524;
+    --warn-soft: #2f2412;
+    --danger: #f87171;
+    --danger-soft: #331a1a;
+    --info: #60a5fa;
+    --info-soft: #172338;
+    --bubble-out: #183a30;
+  }
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-canvas: var(--canvas);
+  --color-panel: var(--panel);
+  --color-subtle: var(--subtle);
+  --color-hover: var(--hover);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-fg: var(--brand-fg);
+  --color-warn: var(--warn);
+  --color-warn-soft: var(--warn-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --color-bubble-out: var(--bubble-out);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
+html {
+  color-scheme: light dark;
+}
+
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--canvas);
+  color: var(--fg);
+  font-family: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+}
+
+/* Shared form-control look, so every input/select/textarea matches without repeating 10 classes. */
+@layer components {
+  .control {
+    @apply w-full rounded-md border border-line bg-panel px-3 py-2 text-sm text-fg shadow-xs outline-none transition-colors placeholder:text-faint hover:border-line-strong focus:border-brand focus:ring-2 focus:ring-brand/20 disabled:cursor-not-allowed disabled:opacity-50;
+  }
 }

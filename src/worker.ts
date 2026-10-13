@@ -38,6 +38,15 @@ import { maybeUpdateConversationSummary, MEMORY_KEEP_RECENT } from "./lib/conver
 import { searchKnowledge } from "./db/knowledge.js";
 import { listServices } from "./db/services.js";
 import { listDocuments } from "./db/documents.js";
+import { listBusinessInfo } from "./db/businessInfo.js";
+import { listBusinessHours } from "./db/businessHours.js";
+import {
+  renderAlwaysOnInfo,
+  renderAssistantStyle,
+  type ProfileData,
+  type LocationData,
+  type AssistantData,
+} from "./lib/businessInfo.js";
 import { getBookingById, markReminderSent } from "./db/bookings.js";
 import { withTenant } from "./db/tenantContext.js";
 import { getTenantById } from "./db/tenants.js";
@@ -338,7 +347,19 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       // Long-term memory of this customer — everything that scrolled out of
       // the `history` window above, distilled (lib/conversationMemory.ts).
       const { summary } = await getConversationMemory(client, conversationId);
-      return { skip: false as const, conversationId, history, services, documents, customerMemory: summary };
+      // Owner-entered business facts + voice (dashboard Knowledge pages) —
+      // the always-on part of the prompt, see lib/businessInfo.ts.
+      const sections = new Map((await listBusinessInfo(client)).map((r) => [r.section, r.data]));
+      const hours = await listBusinessHours(client);
+      const businessInfo = {
+        alwaysOn: renderAlwaysOnInfo({
+          profile: sections.get("profile") as ProfileData | undefined,
+          location: sections.get("location") as LocationData | undefined,
+          hours,
+        }),
+        assistantStyle: renderAssistantStyle(sections.get("assistant") as AssistantData | undefined),
+      };
+      return { skip: false as const, conversationId, history, services, documents, customerMemory: summary, businessInfo };
     });
 
     if (convoState.skip) {
@@ -347,7 +368,7 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       return;
     }
 
-    const { conversationId, history, services, documents, customerMemory } = convoState;
+    const { conversationId, history, services, documents, customerMemory, businessInfo } = convoState;
 
     // Show typing as soon as we know we're actually going to reply (not
     // right before send) — that's the whole point of it masking LLM latency.
@@ -365,6 +386,7 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       services,
       documents,
       customerMemory,
+      businessInfo,
     );
 
     const chatHistory: ChatTurn[] = history.map((m) => ({

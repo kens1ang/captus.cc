@@ -58,3 +58,8 @@ export async function deleteKnowledgeChunk(client: PoolClient, id: string): Prom
   const result = await client.query(`DELETE FROM knowledge_chunks WHERE id = $1`, [id]);
   return (result.rowCount ?? 0) > 0;
 }
+
+/** Removes every chunk from one source — how a re-saved section replaces its old chunks instead of duplicating them. */
+export async function deleteKnowledgeBySource(client: PoolClient, source: string): Promise<void> {
+  await client.query(`DELETE FROM knowledge_chunks WHERE source = $1`, [source]);
+}

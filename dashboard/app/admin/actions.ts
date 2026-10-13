@@ -2,43 +2,49 @@
 
 import { revalidatePath } from "next/cache";
 import { backendFetch } from "@/lib/backend";
+import { attempt, fail, type ActionState } from "@/lib/actionState";
 
-export async function createTenant(formData: FormData) {
+export async function createTenant(_prev: ActionState, formData: FormData): Promise<ActionState> {
   const businessName = String(formData.get("businessName") ?? "").trim();
   const businessDescription = String(formData.get("businessDescription") ?? "").trim();
   const whatsappPhoneNumberId = String(formData.get("whatsappPhoneNumberId") ?? "").trim();
   const whatsappBusinessAccountId = String(formData.get("whatsappBusinessAccountId") ?? "").trim();
-  if (!businessName || !whatsappPhoneNumberId) return;
+  if (!businessName || !whatsappPhoneNumberId) return fail("Business name and phone number ID are required");
 
-  await backendFetch("/api/admin/tenants", {
-    method: "POST",
-    body: JSON.stringify({ businessName, businessDescription, whatsappPhoneNumberId, whatsappBusinessAccountId }),
+  return attempt(async () => {
+    await backendFetch("/api/admin/tenants", {
+      method: "POST",
+      body: JSON.stringify({ businessName, businessDescription, whatsappPhoneNumberId, whatsappBusinessAccountId }),
+    });
+    revalidatePath("/admin");
+    return `Created "${businessName}"`;
   });
-
-  revalidatePath("/admin");
 }
 
-export async function updateWabaId(tenantId: string, formData: FormData) {
+export async function updateWabaId(tenantId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const whatsappBusinessAccountId = String(formData.get("whatsappBusinessAccountId") ?? "").trim();
-  if (!whatsappBusinessAccountId) return;
+  if (!whatsappBusinessAccountId) return fail("Enter the WABA ID");
 
-  await backendFetch(`/api/admin/tenants/${tenantId}/whatsapp-business-account`, {
-    method: "POST",
-    body: JSON.stringify({ whatsappBusinessAccountId }),
+  return attempt(async () => {
+    await backendFetch(`/api/admin/tenants/${tenantId}/whatsapp-business-account`, {
+      method: "POST",
+      body: JSON.stringify({ whatsappBusinessAccountId }),
+    });
+    revalidatePath("/admin");
   });
-
-  revalidatePath("/admin");
 }
 
-export async function linkClient(tenantId: string, formData: FormData) {
+export async function linkClient(tenantId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const email = String(formData.get("email") ?? "").trim();
   const role = String(formData.get("role") ?? "owner").trim();
-  if (!email) return;
+  if (!email) return fail("Enter an email");
 
-  await backendFetch(`/api/admin/tenants/${tenantId}/link`, {
-    method: "POST",
-    body: JSON.stringify({ email, role }),
+  return attempt(async () => {
+    await backendFetch(`/api/admin/tenants/${tenantId}/link`, {
+      method: "POST",
+      body: JSON.stringify({ email, role }),
+    });
+    revalidatePath("/admin");
+    return `Linked ${email}`;
   });
-
-  revalidatePath("/admin");
 }

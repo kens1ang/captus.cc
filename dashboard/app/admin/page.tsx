@@ -1,5 +1,10 @@
+import { Building2, UserPlus } from "lucide-react";
+import { ActionForm, FormFooter } from "@/components/forms";
+import { Badge, Card, CardHeader, EmptyState, Field, Page, PageHeader } from "@/components/ui";
 import { backendFetch } from "@/lib/backend";
 import { createTenant, linkClient, updateWabaId } from "./actions";
+
+export const metadata = { title: "All businesses" };
 
 interface TenantUser {
   id: string;
@@ -21,94 +26,83 @@ export default async function AdminPage() {
   const tenants = await backendFetch<Tenant[]>("/api/admin/tenants");
 
   return (
-    <div className="p-6 max-w-3xl mx-auto flex flex-col gap-8">
-      <h1 className="text-lg font-semibold">Admin — businesses</h1>
+    <Page wide>
+      <PageHeader eyebrow="Admin" title="All businesses" description="Onboard new clients and manage who can sign in to each business." />
 
-      <form action={createTenant} className="flex flex-col gap-2 border border-gray-200 rounded p-4">
-        <h2 className="text-sm font-medium">New business</h2>
-        <input
-          name="businessName"
-          placeholder="Business name"
-          className="border border-gray-300 rounded px-3 py-2 text-sm"
-          required
-        />
-        <input
-          name="businessDescription"
-          placeholder="Short description (used by the bot to answer questions)"
-          className="border border-gray-300 rounded px-3 py-2 text-sm"
-        />
-        <input
-          name="whatsappPhoneNumberId"
-          placeholder="WhatsApp phone number id"
-          className="border border-gray-300 rounded px-3 py-2 text-sm font-mono"
-          required
-        />
-        <input
-          name="whatsappBusinessAccountId"
-          placeholder="WhatsApp Business Account (WABA) id — from WhatsApp Manager > API Setup, next to the phone number id"
-          className="border border-gray-300 rounded px-3 py-2 text-sm font-mono"
-        />
-        <button type="submit" className="self-start px-4 py-2 rounded bg-gray-900 text-white text-sm">
-          Create
-        </button>
-      </form>
+      <Card>
+        <CardHeader title="Add a business" description="Creates the tenant. Its owner fills in everything else from their own dashboard." />
+        <ActionForm action={createTenant} resetOnSuccess>
+          <div className="grid gap-4 p-5 sm:grid-cols-2">
+            <Field label="Business name" htmlFor="t-name">
+              <input id="t-name" name="businessName" required className="control" />
+            </Field>
+            <Field label="Short description" optional htmlFor="t-desc">
+              <input id="t-desc" name="businessDescription" className="control" />
+            </Field>
+            <Field label="WhatsApp phone number ID" htmlFor="t-phone" hint="Meta › WhatsApp Manager › API Setup">
+              <input id="t-phone" name="whatsappPhoneNumberId" required className="control font-mono" />
+            </Field>
+            <Field label="WhatsApp Business Account ID" optional htmlFor="t-waba" hint="Needed for booking reminders. Shown next to the phone number ID.">
+              <input id="t-waba" name="whatsappBusinessAccountId" className="control font-mono" />
+            </Field>
+          </div>
+          <FormFooter submitLabel="Create business" pendingText="Creating…" />
+        </ActionForm>
+      </Card>
 
-      <ul className="flex flex-col gap-4">
-        {tenants.map((t) => (
-          <li key={t.id} className="border border-gray-200 rounded p-4 flex flex-col gap-3">
-            <div>
-              <p className="font-medium">{t.businessName}</p>
-              <p className="text-xs text-gray-400 font-mono">{t.whatsappPhoneNumberId}</p>
-            </div>
-
-            <div className="text-xs">
-              {t.whatsappBusinessAccountId ? (
-                <p className="text-gray-400 font-mono">WABA: {t.whatsappBusinessAccountId}</p>
-              ) : (
-                <form action={updateWabaId.bind(null, t.id)} className="flex gap-2">
-                  <input
-                    name="whatsappBusinessAccountId"
-                    placeholder="WABA id (needed for booking reminders)"
-                    className="flex-1 border border-gray-300 rounded px-2 py-1 font-mono"
-                    required
-                  />
-                  <button type="submit" className="px-2 py-1 rounded bg-gray-900 text-white">
-                    Save
-                  </button>
-                </form>
-              )}
-            </div>
-
-            <ul className="text-sm flex flex-col gap-1">
-              {t.users.map((u) => (
-                <li key={u.id} className="flex gap-2 items-center">
-                  <span>{u.email}</span>
-                  <span className="text-xs bg-gray-100 px-2 py-0.5 rounded">{u.role}</span>
-                  {u.isAdmin && <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded">admin</span>}
-                </li>
-              ))}
-              {t.users.length === 0 && <li className="text-gray-400">No linked users yet.</li>}
-            </ul>
-
-            <form action={linkClient.bind(null, t.id)} className="flex gap-2">
-              <input
-                name="email"
-                type="email"
-                placeholder="client@example.com — they must have signed up already"
-                className="flex-1 border border-gray-300 rounded px-3 py-2 text-sm"
-                required
+      {tenants.length === 0 ? (
+        <Card>
+          <EmptyState icon={Building2} title="No businesses yet" />
+        </Card>
+      ) : (
+        <div className="grid gap-4 lg:grid-cols-2">
+          {tenants.map((t) => (
+            <Card key={t.id} className="flex flex-col">
+              <CardHeader
+                title={t.businessName}
+                description={<span className="font-mono text-xs">{t.whatsappPhoneNumberId}</span>}
+                actions={t.whatsappBusinessAccountId ? <Badge tone="brand">WABA set</Badge> : <Badge tone="warn">No WABA</Badge>}
               />
-              <select name="role" defaultValue="owner" className="border border-gray-300 rounded px-2 py-2 text-sm">
-                <option value="owner">owner</option>
-                <option value="staff">staff</option>
-              </select>
-              <button type="submit" className="px-3 py-2 rounded bg-gray-900 text-white text-sm">
-                Link
-              </button>
-            </form>
-          </li>
-        ))}
-      </ul>
-    </div>
+              <div className="flex flex-1 flex-col gap-4 px-5 py-4">
+                {!t.whatsappBusinessAccountId && (
+                  <ActionForm action={updateWabaId.bind(null, t.id)} className="flex gap-2">
+                    <input name="whatsappBusinessAccountId" required placeholder="WABA ID (for booking reminders)" className="control font-mono" />
+                    <FormFooter submitLabel="Save" className="rounded-none border-0 bg-transparent p-0" />
+                  </ActionForm>
+                )}
+                <div>
+                  <p className="mb-2 text-xs font-medium tracking-wider text-faint uppercase">People</p>
+                  {t.users.length === 0 ? (
+                    <p className="text-sm text-muted">No one linked yet.</p>
+                  ) : (
+                    <ul className="flex flex-col gap-1.5">
+                      {t.users.map((u) => (
+                        <li key={u.id} className="flex items-center gap-2 text-sm">
+                          <span className="min-w-0 flex-1 truncate">{u.email}</span>
+                          <Badge>{u.role}</Badge>
+                          {u.isAdmin && <Badge tone="warn">admin</Badge>}
+                        </li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+              </div>
+              <ActionForm action={linkClient.bind(null, t.id)} resetOnSuccess className="border-t border-line">
+                <div className="flex gap-2 px-5 pt-4">
+                  <input name="email" type="email" required placeholder="client@example.com (must have signed up)" className="control" />
+                  <select name="role" defaultValue="owner" className="control w-28">
+                    <option value="owner">Owner</option>
+                    <option value="staff">Staff</option>
+                  </select>
+                </div>
+                <FormFooter submitLabel="Link" pendingText="Linking…" className="border-0 bg-transparent">
+                  <UserPlus className="mr-auto size-4 text-faint" />
+                </FormFooter>
+              </ActionForm>
+            </Card>
+          ))}
+        </div>
+      )}
+    </Page>
   );
 }
