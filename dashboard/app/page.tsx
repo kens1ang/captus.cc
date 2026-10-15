@@ -1,6 +1,8 @@
 import Link from "next/link";
 import { ArrowRight, BookOpen, CalendarDays, CheckCircle2, Circle, Inbox, MessagesSquare, Sparkles, TriangleAlert } from "lucide-react";
+import { auth } from "@clerk/nextjs/server";
 import { AutoRefresh } from "@/components/AutoRefresh";
+import { SignInScreen } from "@/components/SignInScreen";
 import { ContactAvatar, StatusBadge } from "@/components/ConversationStatus";
 import { Badge, ButtonLink, Card, CardHeader, EmptyState, Page, PageHeader, cx } from "@/components/ui";
 import { formatPhone, formatRange, formatRelative } from "@/lib/formatDate";
@@ -23,6 +25,10 @@ function isWithinLastDay(iso: string): boolean {
 }
 
 export default async function OverviewPage() {
+  // "/" is a public route (see proxy.ts) — signed-out visitors get sign-in here.
+  const { userId } = await auth();
+  if (!userId) return <SignInScreen hashRouting />;
+
   const [me, settings, conversations, info, hours, documents, google, services, bookings, chunks] = await Promise.all([
     getMe(),
     getSettings(),

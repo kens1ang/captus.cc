@@ -21,6 +21,9 @@ const geistMono = Geist_Mono({
 export const metadata: Metadata = {
   title: { default: "Captus", template: "%s · Captus" },
   description: "Your WhatsApp AI assistant — conversations, knowledge and bookings",
+  other: {
+    "facebook-domain-verification": "25g1sfi0mh6absoik6tm6k8r6yoisk",
+  },
 };
 
 function NotLinked() {
