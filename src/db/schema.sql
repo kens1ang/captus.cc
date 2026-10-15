@@ -122,6 +122,10 @@ CREATE TABLE IF NOT EXISTS services (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 ALTER TABLE services ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES tenants(id);
+-- How many bookings may overlap while this service is still offered (e.g.
+-- 3 stylists, 5 tables). Counted against ALL overlapping bookings, not just
+-- this service's, since a business's services usually share staff/space.
+ALTER TABLE services ADD COLUMN IF NOT EXISTS capacity integer NOT NULL DEFAULT 1 CHECK (capacity > 0);
 
 -- Weekly recurring open hours. One row per open interval; a weekday with no
 -- row is closed. Multiple rows per day supports split hours (e.g. a lunch

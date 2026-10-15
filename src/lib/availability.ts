@@ -21,10 +21,32 @@ function overlaps(aStart: DateTime, aEnd: DateTime, bStartISO: string, bEndISO: 
 }
 
 /**
+ * Most bookings running at the same moment anywhere inside [slotStart,
+ * slotEnd). Not just "how many overlap the slot": with a 60-minute slot,
+ * a 10:00-10:30 and a 10:30-11:00 booking both overlap it but never run
+ * together, so they only use one unit of capacity. Concurrency can only
+ * rise at a booking's start, so checking the slot start plus every booking
+ * start inside the slot finds the peak.
+ */
+function peakConcurrent(slotStart: DateTime, slotEnd: DateTime, bookings: { startsAt: string; endsAt: string }[]): number {
+  const relevant = bookings
+    .map((b) => ({ start: DateTime.fromISO(b.startsAt), end: DateTime.fromISO(b.endsAt) }))
+    .filter((b) => b.start < slotEnd && b.end > slotStart);
+  const points = [slotStart, ...relevant.map((b) => b.start).filter((s) => s > slotStart)];
+  let peak = 0;
+  for (const p of points) {
+    const n = relevant.filter((b) => b.start <= p && b.end > p).length;
+    if (n > peak) peak = n;
+  }
+  return peak;
+}
+
+/**
  * Real, deterministic availability — never something the LLM invents. Walks
  * the tenant's weekly business hours on a 30-minute grid over the next two
  * weeks, filtering out anything that overlaps either a locally-confirmed
- * booking or a busy block on the tenant's actual Google Calendar (meetings,
+ * booking (once the service's capacity is used up) or a busy block on the
+ * tenant's actual Google Calendar (meetings,
  * holidays, anything not made through Captus). If the tenant hasn't
  * connected a calendar, queryFreeBusy just returns [] and this still works
  * off local bookings alone.
@@ -42,6 +64,7 @@ export async function computeAvailableSlots(
   tenantId: string,
   timezone: string,
   durationMinutes: number,
+  capacity: number,
   preferredDate?: string,
 ): Promise<AvailableSlot[]> {
   const hours = await listBusinessHours(client);
@@ -78,7 +101,7 @@ export async function computeAvailableSlots(
         if (slotStart < earliestStart) continue;
 
         const slotEnd = slotStart.plus({ minutes: durationMinutes });
-        const clashesLocally = localBookings.some((b) => overlaps(slotStart, slotEnd, b.startsAt, b.endsAt));
+        const clashesLocally = peakConcurrent(slotStart, slotEnd, localBookings) >= capacity;
         const clashesOnCalendar = busyBlocks.some((b) => overlaps(slotStart, slotEnd, b.start, b.end));
         if (clashesLocally || clashesOnCalendar) continue;
 
@@ -101,6 +124,7 @@ export async function isSlotAvailable(
   tenantId: string,
   timezone: string,
   durationMinutes: number,
+  capacity: number,
   startISO: string,
 ): Promise<boolean> {
   const slotStart = DateTime.fromISO(startISO).setZone(timezone);
@@ -124,7 +148,7 @@ export async function isSlotAvailable(
     listConfirmedBookingsInRange(client, slotStart.toISO()!, slotEnd.toISO()!),
     queryFreeBusy(tenantId, slotStart.toISO()!, slotEnd.toISO()!),
   ]);
-  if (localBookings.some((b) => overlaps(slotStart, slotEnd, b.startsAt, b.endsAt))) return false;
+  if (peakConcurrent(slotStart, slotEnd, localBookings) >= capacity) return false;
   if (busyBlocks.some((b) => overlaps(slotStart, slotEnd, b.start, b.end))) return false;
 
   return true;

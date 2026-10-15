@@ -1,11 +1,12 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { ArrowRight, Clock3, Trash2 } from "lucide-react";
-import { ActionForm, ConfirmButton, FormFooter } from "@/components/forms";
+import { ArrowRight } from "lucide-react";
+import { ActionForm, FormFooter } from "@/components/forms";
 import { GoogleCalendarCard } from "@/components/GoogleCalendarCard";
+import { ServiceRow } from "@/components/ServiceRow";
 import { Badge, Card, Field } from "@/components/ui";
 import { getBusinessHours, getGoogleStatus, getServices } from "@/lib/data";
-import { addService, deleteServiceAction } from "../actions";
+import { addService, deleteServiceAction, updateServiceAction } from "../actions";
 
 export const metadata = { title: "Booking setup" };
 
@@ -37,29 +38,19 @@ export default async function BookingSetupPage(props: PageProps<"/bookings/setup
 
   return (
     <div className="flex flex-col gap-10">
-      <Step n={1} title="Bookable services" description="What customers can book, and how long each takes. Bookings stay off until you add one.">
+      <Step n={1} title="Bookable services" description="What customers can book, how long each takes, and how many customers you can take at the same time. Bookings stay off until you add one.">
         <Card>
           {services.length > 0 && (
             <ul className="divide-y divide-line border-b border-line">
               {services.map((s) => (
-                <li key={s.id} className="flex items-center gap-3 px-5 py-3">
-                  <p className="min-w-0 flex-1 truncate text-sm font-medium">{s.name}</p>
-                  <Badge>
-                    <Clock3 className="size-3" /> {s.durationMinutes} min
-                  </Badge>
-                  <ConfirmButton
-                    action={deleteServiceAction.bind(null, s.id)}
-                    confirmText={`Remove "${s.name}"? Customers won't be able to book it any more.`}
-                    title="Remove service"
-                  >
-                    <Trash2 className="size-3.5" />
-                  </ConfirmButton>
+                <li key={s.id}>
+                  <ServiceRow service={s} update={updateServiceAction.bind(null, s.id)} remove={deleteServiceAction.bind(null, s.id)} />
                 </li>
               ))}
             </ul>
           )}
           <ActionForm action={addService} resetOnSuccess>
-            <div className="grid gap-4 p-5 sm:grid-cols-[1fr_9rem]">
+            <div className="grid gap-4 p-5 sm:grid-cols-[1fr_8rem_9rem]">
               <Field label="Service name" htmlFor="svc-name">
                 <input id="svc-name" name="name" required placeholder="e.g. Haircut, Consultation, Table for 4" className="control" />
               </Field>
@@ -69,7 +60,14 @@ export default async function BookingSetupPage(props: PageProps<"/bookings/setup
                   <span className="pointer-events-none absolute top-1/2 right-3 -translate-y-1/2 text-xs text-faint">min</span>
                 </div>
               </Field>
+              <Field label="Bookings at a time" htmlFor="svc-capacity">
+                <input id="svc-capacity" name="capacity" type="number" min={1} max={100} step={1} required defaultValue={1} className="control" />
+              </Field>
             </div>
+            <p className="-mt-2 px-5 pb-4 text-xs text-muted">
+              How many customers can be booked for the same time — e.g. 3 if you have 3 stylists or 5 tables. Leave at 1 if you
+              only see one customer at a time.
+            </p>
             <FormFooter submitLabel="Add service" pendingText="Adding…" />
           </ActionForm>
         </Card>

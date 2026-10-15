@@ -124,6 +124,11 @@ export async function createCalendarEvent(
     body: JSON.stringify({
       summary: input.summary,
       description: input.description,
+      // "Free" to freebusy: Captus's own bookings are already counted from
+      // the local bookings table (lib/availability.ts), so they must not ALSO
+      // come back as busy blocks — otherwise a service with capacity > 1
+      // could never take a second overlapping booking.
+      transparency: "transparent",
       start: { dateTime: input.startISO, timeZone: input.timezone },
       end: { dateTime: input.endISO, timeZone: input.timezone },
     }),

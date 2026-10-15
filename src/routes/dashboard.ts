@@ -15,7 +15,7 @@ import {
   touchConversation,
 } from "../db/conversations.js";
 import { listKnowledgeChunks, deleteKnowledgeChunk } from "../db/knowledge.js";
-import { listServices, createService, deleteService } from "../db/services.js";
+import { listServices, createService, updateService, deleteService } from "../db/services.js";
 import { listBusinessHours, replaceBusinessHours, type BusinessHoursInterval } from "../db/businessHours.js";
 import { listUpcomingBookings, cancelBooking } from "../db/bookings.js";
 import { deleteCalendarEvent } from "../lib/googleCalendar.js";
@@ -189,14 +189,33 @@ export async function dashboardRoutes(app: FastifyInstance) {
     return withTenant(tenantId, (client) => listServices(client));
   });
 
-  app.post<{ Body: { name: string; durationMinutes: number } }>("/api/services", async (req, reply) => {
+  app.post<{ Body: { name: string; durationMinutes: number; capacity?: number } }>("/api/services", async (req, reply) => {
     const tenantId = req.dashboardUser!.tenantId;
     const name = req.body?.name?.trim();
     const durationMinutes = Number(req.body?.durationMinutes);
-    if (!name || !Number.isFinite(durationMinutes) || durationMinutes <= 0) {
+    const capacity = Number(req.body?.capacity ?? 1);
+    if (!name || !Number.isInteger(durationMinutes) || durationMinutes <= 0) {
       return reply.code(400).send({ error: "name and a positive durationMinutes are required" });
     }
-    const service = await withTenant(tenantId, (client) => createService(client, tenantId, name, durationMinutes));
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 100) {
+      return reply.code(400).send({ error: "capacity must be a whole number from 1 to 100" });
+    }
+    const service = await withTenant(tenantId, (client) => createService(client, tenantId, name, durationMinutes, capacity));
+    return service;
+  });
+
+  app.patch<{ Params: { id: string }; Body: { durationMinutes: number; capacity: number } }>("/api/services/:id", async (req, reply) => {
+    const tenantId = req.dashboardUser!.tenantId;
+    const durationMinutes = Number(req.body?.durationMinutes);
+    const capacity = Number(req.body?.capacity);
+    if (!Number.isInteger(durationMinutes) || durationMinutes <= 0) {
+      return reply.code(400).send({ error: "durationMinutes must be a positive whole number" });
+    }
+    if (!Number.isInteger(capacity) || capacity < 1 || capacity > 100) {
+      return reply.code(400).send({ error: "capacity must be a whole number from 1 to 100" });
+    }
+    const service = await withTenant(tenantId, (client) => updateService(client, req.params.id, { durationMinutes, capacity }));
+    if (!service) return reply.code(404).send({ error: "Service not found" });
     return service;
   });
 
