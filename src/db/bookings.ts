@@ -140,6 +140,16 @@ export async function getBookingById(client: PoolClient, id: string): Promise<Bo
   return result.rows[0] ? toBooking(result.rows[0]) : null;
 }
 
+/** Upcoming bookings whose reminder hasn't gone out — what lib/bookingReminders.ts re-queues on startup. */
+export async function listBookingsAwaitingReminder(client: PoolClient): Promise<Booking[]> {
+  const result = await client.query<BookingRow>(
+    `${SELECT_WITH_SERVICE_NAME}
+     WHERE b.status = 'confirmed' AND b.reminder_sent_at IS NULL AND b.starts_at > now()
+     ORDER BY b.starts_at`,
+  );
+  return result.rows.map(toBooking);
+}
+
 /** Idempotency guard for the reminder worker: returns false if a reminder was already recorded (so a BullMQ retry after a successful send doesn't double-send). */
 export async function markReminderSent(client: PoolClient, id: string): Promise<boolean> {
   const result = await client.query(`UPDATE bookings SET reminder_sent_at = now() WHERE id = $1 AND reminder_sent_at IS NULL`, [id]);

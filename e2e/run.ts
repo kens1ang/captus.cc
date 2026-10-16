@@ -233,16 +233,16 @@ async function featureScenarios(s: Seeded) {
     expect(c.replies().length === 1, "bot kept replying after escalation");
   });
 
-  await scenario(P, "[behaviour] After an 'I don't know' escalation, follow-up questions", async () => {
+  await scenario(P, "'I don't know' flags the chat but keeps answering follow-ups", async () => {
     const c = newCustomer();
-    await chat(c, "Do you sell durian cake? How much?");
+    const before = mock.messagesTo(OWNER_NUMBER).length;
+    await chat(c, "Do you do catering for a 200-person wedding? What's the price per head?");
     const status = (await conversationOf(TENANT_A_PHONE_ID, c.number))?.status;
     note(`[status after reply: ${status}]`);
-    await c.send("ok never mind. what's your wifi password?");
-    await sleep(15_000);
-    const answered = c.replies().length > 1;
-    note(answered ? `< ${c.replies()[1]}` : "[no reply — bot muted]");
-    return status === "needs_human" ? (answered ? "escalated, still answers follow-ups" : "escalated → bot muted, follow-up ignored") : "not escalated, kept answering";
+    expect(status !== "needs_human", "an unanswerable question paused the assistant (should only flag)");
+    const r = await chat(c, "ok never mind. what's your wifi password?");
+    expect(/kopi2026/i.test(r), "follow-up question wasn't answered");
+    return status === "flagged" ? `flagged (owner pinged: ${mock.messagesTo(OWNER_NUMBER).length > before}), follow-up answered` : "not escalated, follow-up answered";
   });
 
   await scenario(P, "Human takeover silences the bot; resuming brings it back", async () => {
@@ -405,9 +405,14 @@ async function featureScenarios(s: Seeded) {
       await db.query(`INSERT INTO messages (tenant_id, conversation_id, direction, content, created_at) VALUES ($1,$2,'out',$3, now() - interval '1 hour' + ($4 || ' seconds')::interval)`, [s.tenantA, convo!.id, `filler answer ${i}: sorry, I can only help with the cafe`, i * 2 + 1]);
     }
     note("[28 filler messages inserted]");
-    await chat(c, "What do you recommend for lunch?"); // triggers the summary update afterwards
-    await sleep(5000);
-    const summary = (await conversationOf(TENANT_A_PHONE_ID, c.number))?.summary ?? "";
+    const lunch = await chat(c, "What do you recommend for lunch?"); // also triggers the summary update afterwards
+    expect(!/nasi lemak/i.test(lunch) || /allerg|avoid|without (the )?peanut|no peanut|contains peanut/i.test(lunch), "recommended the peanut dish to a peanut-allergic customer");
+    // The summary is written just after the reply goes out — give it time.
+    let summary = "";
+    for (let i = 0; i < 45 && !summary; i++) {
+      summary = (await conversationOf(TENANT_A_PHONE_ID, c.number))?.summary ?? "";
+      if (!summary) await sleep(1000);
+    }
     note(`[summary: ${summary}]`);
     expect(/peanut/i.test(summary), "long-term summary missed the peanut allergy");
     const r = await chat(c, "Remind me — do I have any allergies you know of?");
@@ -483,7 +488,7 @@ async function failureScenarios() {
     expect(/4[.,]50/.test(r), "wrong answer");
   });
 
-  await scenario(P, "WhatsApp send keeps failing → no duplicate/phantom messages", async () => {
+  await scenario(P, "WhatsApp keeps refusing a reply → handed to a human, operator alerted, nothing faked", async () => {
     const c = newCustomer();
     mock.failSendsTo(c.number, 99);
     await c.send("Is the food halal?");
@@ -492,7 +497,29 @@ async function failureScenarios() {
     const convo = await conversationOf(TENANT_A_PHONE_ID, c.number);
     note(`[delivered: 0, stored outbound: ${outRows.length}, status: ${convo?.status}]`);
     expect(outRows.length === 0, "a reply that never reached the customer was recorded as sent");
-    return `customer got nothing; conversation status "${convo?.status}" — nobody is told`;
+    expect(convo?.status === "needs_human", `status is "${convo?.status}" — nobody would notice`);
+    expect(/\[OPS ALERT\] sendfail:/.test(appLogText("app-failures.log")), "no ops alert for the refused sends");
+  });
+
+  await scenario(P, "Redis wiped (Render free tier restart) → reminders rebuilt on startup", async () => {
+    const contact = "60199990077";
+    await db.query(
+      `INSERT INTO bookings (tenant_id, service_id, contact_wa_number, starts_at, ends_at, status)
+       SELECT t.id, s.id, $1, now() + interval '3 days', now() + interval '3 days 1 hour', 'confirmed'
+       FROM tenants t JOIN services s ON s.tenant_id = t.id AND s.name = 'Table reservation' WHERE t.whatsapp_phone_number_id = $2`,
+      [contact, TENANT_A_PHONE_ID],
+    );
+    const id = (await bookingsOf(contact))[0].id;
+    const key = `bull:booking-reminders:reminder_${id}`;
+    const redis = (cmd: string) => execSync(`docker compose -f e2e/docker-compose.yml exec -T redis redis-cli ${cmd}`, { cwd: ROOT }).toString().trim();
+    redis("FLUSHALL");
+    note("[redis wiped — every queued job gone]");
+    expect(redis(`EXISTS ${key}`) === "0", "job unexpectedly present before restart");
+    await restartApp({}, "app-failures.log");
+    for (let i = 0; i < 20 && redis(`EXISTS ${key}`) !== "1"; i++) await sleep(500);
+    expect(redis(`EXISTS ${key}`) === "1", "reminder not restored after restart");
+    for (let i = 0; i < 20 && !/reminders restored from the database: [1-9]/.test(appLogText("app-failures.log")); i++) await sleep(500);
+    expect(/reminders restored from the database: [1-9]/.test(appLogText("app-failures.log")), "no restore log line");
   });
 
   await scenario(P, "Redis restarts while a reply is pending", async () => {

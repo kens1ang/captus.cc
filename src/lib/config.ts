@@ -59,22 +59,33 @@ export const config = {
     // Fallback chains, tried in order (lib/llmFallback.ts) — a model that's
     // overloaded, rate-limited, out of quota or retired is skipped for a
     // while and the next one answers instead. Comma-separated env override.
-    // Only stable models: previews get lower limits and vanish without
-    // notice (2.5 Flash went 404 "no longer available to new users" with no
-    // warning). Probed 2026-10-16: 3.5 Flash-Lite ~1.2s, 3.5 Flash ~2.6s;
-    // 3.8 Flash answered correctly but took 169s, so it's not in here.
+    // On the free tier every model has its OWN per-minute/per-day quota, so
+    // each extra model is extra capacity — but only fast models that call
+    // tools correctly belong here. Stable ones first; previews last (they
+    // can vanish without notice — 2.5 Flash went 404 "no longer available
+    // to new users" overnight — which the chain survives: a 404 is skipped
+    // for 6h and alerts the operator). Probed 2026-10-16 with a booking
+    // tool call: 3.5 Flash-Lite ~1.2s, 3.5 Flash ~2.6s, 3.1 Flash-Lite
+    // ~1-3s, 3.1 Flash-Lite preview ~1.5s, 3 Flash preview ~2.8s (passes
+    // "tomorrow"/"3pm" through unformatted, hence last). Left out: 3.7 Flash
+    // and flash-latest (24-30s), 3.8 Flash (169s), 3.6 Flash and Omni (zero
+    // free-tier quota), *-latest aliases (share another model's quota).
     // GEMINI_MODEL / GEMINI_TRANSCRIBE_MODEL (the old single-model vars)
     // still work and just become the head of the chain.
     replyModels: modelChain(process.env.GEMINI_MODELS, process.env.GEMINI_MODEL, [
       "gemini-3.5-flash-lite",
       "gemini-3.5-flash",
       "gemini-3.1-flash-lite",
+      "gemini-3.1-flash-lite-preview",
+      "gemini-3-flash-preview",
     ]),
     // Voice notes, photos, documents.
     mediaModels: modelChain(process.env.GEMINI_MEDIA_MODELS, process.env.GEMINI_TRANSCRIBE_MODEL, [
       "gemini-3.5-flash-lite",
       "gemini-3.5-flash",
       "gemini-3.1-flash-lite",
+      "gemini-3.1-flash-lite-preview",
+      "gemini-3-flash-preview",
     ]),
     // Deliberately a single model with no fallback: vectors from different
     // embedding models aren't comparable, so silently switching would break

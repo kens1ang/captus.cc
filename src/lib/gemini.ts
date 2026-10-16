@@ -20,6 +20,13 @@ export interface AssistantReply {
   reply: string;
   escalate: boolean;
   escalateReason?: string;
+  /**
+   * "handover" pauses the assistant for this customer until staff step in
+   * (complaints, asking for a person). "follow_up" just tells the owner
+   * about something the assistant couldn't answer — it keeps helping with
+   * everything else meanwhile.
+   */
+  escalateKind?: "handover" | "follow_up";
 }
 
 // --- Tool-calling agent loop (Stage 5: booking) ---
@@ -63,6 +70,12 @@ const RESPOND_TOOL: ToolDeclaration = {
       reply: { type: "STRING", description: "The message to send back to the customer." },
       escalate: { type: "BOOLEAN", description: "true if a human should be notified to step in, false otherwise." },
       escalate_reason: { type: "STRING", description: "Short (<15 words) reason, only when escalate is true." },
+      escalate_kind: {
+        type: "STRING",
+        enum: ["handover", "follow_up"],
+        description:
+          "Only when escalate is true. handover = the customer is upset or complaining, asks for a person, or the matter is sensitive: you stop replying until staff take over. follow_up = you just couldn't answer something from what you know: staff are told, and you keep helping with everything else.",
+      },
     },
     required: ["reply", "escalate"],
   },
@@ -209,8 +222,15 @@ export async function runReplyTurn(
       contents.push({ role: "model", parts });
 
       if (call.name === "respond_to_customer") {
-        const args = call.args as { reply: string; escalate?: boolean; escalate_reason?: string };
-        return { reply: args.reply, escalate: args.escalate === true, escalateReason: args.escalate_reason, toolCalls };
+        const args = call.args as { reply: string; escalate?: boolean; escalate_reason?: string; escalate_kind?: string };
+        return {
+          reply: args.reply,
+          escalate: args.escalate === true,
+          escalateReason: args.escalate_reason,
+          // Unknown/missing kind → handover: the old, cautious behaviour.
+          escalateKind: args.escalate_kind === "follow_up" ? "follow_up" : "handover",
+          toolCalls,
+        };
       }
 
       const result = await executeTool(call);

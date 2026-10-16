@@ -22,16 +22,16 @@ import {
   type ChatTurn,
   type LoggedToolCall,
 } from "./lib/gemini.js";
-import { GeminiError, isTransientFailure } from "./lib/llmFallback.js";
+import { AllModelsFailedError, GeminiError, isTransientFailure } from "./lib/llmFallback.js";
 import { alertOperator } from "./lib/opsAlert.js";
 import { buildSystemPrompt } from "./lib/systemPrompt.js";
 import { buildBookingTools, executeBookingTool, BOOKING_TOOL_NAMES } from "./lib/bookingTools.js";
 import { buildDocumentTools, executeDocumentTool, DOCUMENT_TOOL_NAMES } from "./lib/documentTools.js";
-import { REMINDER_TEMPLATE_NAME, REMINDER_TEMPLATE_LANGUAGE, reminderBodyParams, reminderPlainText } from "./lib/bookingReminders.js";
+import { REMINDER_TEMPLATE_NAME, REMINDER_TEMPLATE_LANGUAGE, reminderBodyParams, reminderPlainText, restoreReminders } from "./lib/bookingReminders.js";
 import type { ToolCall } from "./lib/gemini.js";
 import {
   getOrCreateConversation,
-  getRecentMessages,
+  getReplyHistory,
   insertMessage,
   touchConversation,
   getConversation,
@@ -158,6 +158,23 @@ async function sendHoldingReplyAndEscalate(input: {
   );
 }
 
+/**
+ * A voice note / photo / document whose analysis failed only because Gemini
+ * was momentarily overloaded or rate-limited is worth retrying — the inbound
+ * job has minutes of retries and nothing has been recorded yet, so it's
+ * safe. Anything else (unreadable file, download failure, dead key) goes
+ * straight to the apology + escalation, as does the last attempt.
+ */
+function shouldRetryMedia(err: unknown, job: { opts: { attempts?: number }; attemptsMade: number }): boolean {
+  const aiHiccup = err instanceof AllModelsFailedError || err instanceof GeminiError;
+  const attemptsLeft = (job.opts.attempts ?? 1) - job.attemptsMade - 1;
+  if (aiHiccup && isTransientFailure(err) && attemptsLeft > 0) {
+    console.warn(`[worker] media analysis hit a temporary AI failure — retrying (${attemptsLeft} left)`);
+    return true;
+  }
+  return false;
+}
+
 /** Per-contact rate limit — a generic guard against reply loops/spam bursts, regardless of cause. */
 async function isRateLimited(from: string): Promise<boolean> {
   const key = `ratelimit:${from}`;
@@ -256,6 +273,7 @@ const inboundWorker = new Worker<InboundMessageJob>(
         // just died with the customer never hearing back at all. Same
         // rule-based fallback as the "unsupported" branch instead: the
         // customer always gets *something*, and a human gets pinged.
+        if (shouldRetryMedia(err, job)) throw err;
         console.warn(`[worker] voice note transcription failed for ${from} (msg ${messageId}):`, err);
         await acknowledgeAndEscalate(
           tenantId,
@@ -311,6 +329,7 @@ const inboundWorker = new Worker<InboundMessageJob>(
           : `[sent a ${label} — ${description}]`;
         console.log(`[worker] ${kind} description: "${description}"`);
       } catch (err) {
+        if (shouldRetryMedia(err, job)) throw err;
         console.warn(`[worker] ${kind} analysis failed for ${from} (msg ${messageId}):`, err);
         await acknowledgeAndEscalate(
           tenantId,
@@ -386,24 +405,30 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       const conversationId = await getOrCreateConversation(client, tenantId, from);
 
       // Stage 4 human takeover (architecture doc §5.6): once a human has
-      // stepped in (or it's flagged as needing one), the bot goes silent —
-      // no auto-reply — until the dashboard resumes it back to 'bot'.
+      // stepped in, or the chat was handed over (complaint, asked for a
+      // person), the bot goes silent — no auto-reply — until the dashboard
+      // resumes it back to 'bot'. 'flagged' is NOT silenced: the assistant
+      // only couldn't answer one thing, and shouldn't ignore the customer's
+      // next, perfectly answerable question while waiting for staff (it
+      // used to — found by the e2e harness).
       const conversation = await getConversation(client, conversationId);
-      if (conversation && conversation.status !== "bot") {
+      if (conversation && (conversation.status === "needs_human" || conversation.status === "human_active")) {
         return { skip: true as const, conversationId };
       }
 
       // History already contains each buffered message as its own turn (inserted by worker 1),
       // so the model sees them as sequential user turns rather than one flattened blob.
-      const history = await getRecentMessages(client, conversationId, HISTORY_LIMIT);
+      // Long-term memory of this customer — what scrolled out of the
+      // recent window, distilled (lib/conversationMemory.ts) — and the raw
+      // history, which also includes anything the summary hasn't caught up
+      // on yet, so no message is ever in neither.
+      const { summary, summaryThroughMessageAt } = await getConversationMemory(client, conversationId);
+      const history = await getReplyHistory(client, conversationId, HISTORY_LIMIT, summaryThroughMessageAt);
       // Stage 5: services this tenant can be booked for, and documents it
       // can send — [] for a tenant with neither, which keeps the reply
       // agent's tool list exactly as before (FAQ-only).
       const services = await listServices(client);
       const documents = await listDocuments(client);
-      // Long-term memory of this customer — everything that scrolled out of
-      // the `history` window above, distilled (lib/conversationMemory.ts).
-      const { summary } = await getConversationMemory(client, conversationId);
       // Owner-entered business facts + voice (dashboard Knowledge pages) —
       // the always-on part of the prompt, see lib/businessInfo.ts.
       const sections = new Map((await listBusinessInfo(client)).map((r) => [r.section, r.data]));
@@ -537,7 +562,25 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       }
       // No external side effect happened (plain FAQ turn) — safe to let
       // BullMQ retry the whole job, same as before.
-      throw err;
+      const attemptsLeft = (job.opts.attempts ?? 1) - job.attemptsMade - 1;
+      if (attemptsLeft > 0) throw err;
+      // Out of retries: WhatsApp keeps refusing this reply. Previously the
+      // job just died — the customer got nothing and nobody found out.
+      // Hand the chat to a human so it shows up in "Needs you", tell the
+      // business, and alert the operator: a send that keeps failing is
+      // usually OUR problem (expired token, number restricted by Meta).
+      console.error(`[worker] WhatsApp refused every attempt to reply to ${from} — handing to a human:`, err);
+      await connection.del(bufferKey(from));
+      await withTenant(tenantId, (client) => setConversationStatus(client, conversationId, "needs_human"));
+      const why = err instanceof Error ? err.message : String(err);
+      await alertOperator(`sendfail:${waPhoneNumberId}`, `WhatsApp is refusing replies from number ${waPhoneNumberId} (${why.slice(0, 200)}). Check the access token and the number's status in WhatsApp Manager.`);
+      try {
+        await notifyEscalation(waPhoneNumberId, from, combinedText, "the assistant's reply couldn't be delivered on WhatsApp — please contact the customer");
+      } catch (notifyErr) {
+        // Same channel, likely the same failure — the ops alert above is logged regardless.
+        console.error(`[worker] couldn't notify the business either:`, notifyErr);
+      }
+      return;
     }
     await connection.del(bufferKey(from)); // only clear once the reply has actually gone out
 
@@ -547,7 +590,7 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       await insertMessage(client, tenantId, conversationId, "out", result.reply, undefined, result.toolCalls);
       await touchConversation(client, conversationId);
       if (result.escalate) {
-        await setConversationStatus(client, conversationId, "needs_human");
+        await setConversationStatus(client, conversationId, result.escalateKind === "follow_up" ? "flagged" : "needs_human");
       }
     });
 
@@ -563,8 +606,16 @@ const replyWorker = new Worker<ReplyDebounceJob>(
     }
 
     if (result.escalate) {
-      console.log(`[worker] escalating conversation with ${from}: ${result.escalateReason ?? "unspecified"}`);
-      await notifyEscalation(waPhoneNumberId, from, combinedText, result.escalateReason);
+      const followUp = result.escalateKind === "follow_up";
+      console.log(`[worker] ${followUp ? "flagging" : "handing over"} conversation with ${from}: ${result.escalateReason ?? "unspecified"}`);
+      await notifyEscalation(
+        waPhoneNumberId,
+        from,
+        combinedText,
+        followUp
+          ? `${result.escalateReason ?? "assistant couldn't answer"} (assistant is still replying — follow up when you can)`
+          : `${result.escalateReason ?? "needs a person"} (assistant paused — please reply)`,
+      );
     }
   },
   // Parallel across customers — the reply job is keyed per customer, so two
@@ -636,3 +687,9 @@ for (const w of [inboundWorker, replyWorker, reminderWorker]) {
 }
 
 console.log("Worker started, waiting for inbound messages...");
+
+// Reminders live in Redis, which may have restarted empty — rebuild them from
+// the bookings table. Never blocks startup or crashes the process.
+restoreReminders()
+  .then((n) => console.log(`[worker] reminders restored from the database: ${n}`))
+  .catch((err) => console.error("[worker] restoring reminders failed:", err));

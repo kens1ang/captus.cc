@@ -3,6 +3,7 @@ import type { ConversationStatus } from "@/lib/data";
 
 export const STATUS_META: Record<ConversationStatus, { label: string; tone: "brand" | "warn" | "info" }> = {
   bot: { label: "Assistant", tone: "brand" },
+  flagged: { label: "Flagged", tone: "warn" },
   needs_human: { label: "Needs you", tone: "warn" },
   human_active: { label: "You're replying", tone: "info" },
 };

@@ -109,6 +109,9 @@ export function classifyFetchError(model: string, err: unknown): GeminiError {
 // waiting on the broken one. In-memory: backend + worker are one process.
 
 const coolingUntil = new Map<string, number>();
+/** Why each model is cooling — quota/retired cooldowns are "hard": trying anyway is pointless. */
+const coolingKind = new Map<string, GeminiErrorKind>();
+const HARD_COOLDOWN = new Set<GeminiErrorKind>(["quota_exhausted", "model_not_found"]);
 
 /** Gemini's daily quotas reset at midnight Pacific time. */
 function msUntilQuotaReset(): number {
@@ -123,7 +126,10 @@ function cooldownMs(err: GeminiError): number {
     case "quota_exhausted":
       return msUntilQuotaReset();
     case "overloaded":
-      return 30_000;
+      // Short: 503s come in brief spikes, and with many chats in flight a
+      // long cooldown cascades — every model ends up benched at once and the
+      // last one takes all the traffic (seen in the e2e run on a bad day).
+      return 10_000;
     case "timeout":
       return 60_000;
     case "model_not_found":
@@ -144,7 +150,10 @@ export function resetModelHealth(): void {
 
 async function reportFailure(task: string, err: GeminiError): Promise<void> {
   const ms = cooldownMs(err);
-  if (ms > 0) coolingUntil.set(err.model, Date.now() + ms);
+  if (ms > 0) {
+    coolingUntil.set(err.model, Date.now() + ms);
+    coolingKind.set(err.model, err.kind);
+  }
   console.warn(`[llm] ${task} failed on ${err.model} (${err.kind})${ms ? `, skipping it for ${Math.round(ms / 1000)}s` : ""}: ${err.message}`);
 
   if (err.kind === "quota_exhausted") {
@@ -160,27 +169,39 @@ async function reportFailure(task: string, err: GeminiError): Promise<void> {
   }
 }
 
+const OVERLOAD_RETRY_MS = 1500;
+
 /**
  * Runs `attempt` against each model in `chain` until one succeeds. Models in
- * cooldown are skipped (if every model is cooling, the first is tried
- * anyway rather than failing without trying). Errors that another model
- * can't fix (auth, billing, our own bad request) stop immediately.
+ * cooldown are skipped; if every model is cooling, the soft-cooling ones
+ * (overload, rate limit, timeout) are tried anyway rather than failing
+ * without trying — only models out of daily quota or retired stay skipped.
+ * A 503 gets one quick retry on the same model first (Google's own advice
+ * for overload). Errors no other model can fix (auth, billing, our own bad
+ * request) stop immediately.
  */
 export async function withModelFallback<T>(chain: string[], task: string, attempt: (model: string) => Promise<T>): Promise<T> {
   const healthy = chain.filter((m) => !isCoolingDown(m));
-  const candidates = healthy.length ? healthy : chain.slice(0, 1);
+  const candidates = healthy.length ? healthy : chain.filter((m) => !HARD_COOLDOWN.has(coolingKind.get(m)!) || !isCoolingDown(m));
   const errors: GeminiError[] = [];
 
-  for (const model of candidates) {
-    try {
-      const result = await attempt(model);
-      if (model !== chain[0]) console.log(`[llm] ${task} answered by fallback model ${model}`);
-      return result;
-    } catch (err) {
-      if (!(err instanceof GeminiError)) throw err;
-      await reportFailure(task, err);
-      if (!SWITCHABLE.has(err.kind)) throw err;
-      errors.push(err);
+  for (const model of candidates.length ? candidates : chain.slice(0, 1)) {
+    for (let tryNo = 0; tryNo < 2; tryNo++) {
+      try {
+        const result = await attempt(model);
+        if (model !== chain[0] || tryNo > 0) console.log(`[llm] ${task} answered by ${model !== chain[0] ? `fallback model ${model}` : model}${tryNo ? " on a quick retry" : ""}`);
+        return result;
+      } catch (err) {
+        if (!(err instanceof GeminiError)) throw err;
+        if (err.kind === "overloaded" && tryNo === 0) {
+          await new Promise((r) => setTimeout(r, OVERLOAD_RETRY_MS));
+          continue;
+        }
+        await reportFailure(task, err);
+        if (!SWITCHABLE.has(err.kind)) throw err;
+        errors.push(err);
+        break;
+      }
     }
   }
 

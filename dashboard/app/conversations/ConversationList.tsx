@@ -7,7 +7,7 @@ import { MessagesSquare, Search } from "lucide-react";
 import { ContactAvatar, StatusBadge } from "@/components/ConversationStatus";
 import { EmptyState, cx } from "@/components/ui";
 import { formatPhone, formatRelative } from "@/lib/formatDate";
-import type { ConversationStatus, ConversationSummary } from "@/lib/data";
+import { needsAttention, type ConversationStatus, type ConversationSummary } from "@/lib/data";
 
 const FILTERS: { value: "all" | ConversationStatus; label: string }[] = [
   { value: "all", label: "All" },
@@ -23,11 +23,13 @@ export function ConversationList({ conversations, timezone }: { conversations: C
   const filter = (searchParams.get("filter") as (typeof FILTERS)[number]["value"]) || "all";
   const [query, setQuery] = useState("");
 
-  const counts = Object.fromEntries(FILTERS.map((f) => [f.value, f.value === "all" ? conversations.length : conversations.filter((c) => c.status === f.value).length]));
+  // "Needs you" also covers flagged chats — both want the owner's attention.
+  const matches = (c: ConversationSummary, f: string) => f === "all" || c.status === f || (f === "needs_human" && c.status === "flagged");
+  const counts = Object.fromEntries(FILTERS.map((f) => [f.value, conversations.filter((c) => matches(c, f.value)).length]));
   const q = query.replace(/\D/g, "") || query.trim().toLowerCase();
   const visible = conversations.filter(
     (c) =>
-      (filter === "all" || c.status === filter) &&
+      matches(c, filter) &&
       (!q || c.waNumber.includes(q) || (c.lastMessage ?? "").toLowerCase().includes(query.trim().toLowerCase())),
   );
 
@@ -87,7 +89,7 @@ export function ConversationList({ conversations, timezone }: { conversations: C
                     className={cx(
                       "flex gap-3 border-b border-line px-3 py-3 transition-colors",
                       active ? "bg-hover" : "hover:bg-hover/60",
-                      c.status === "needs_human" && !active && "bg-warn-soft/40",
+                      needsAttention(c.status) && !active && "bg-warn-soft/40",
                     )}
                   >
                     <ContactAvatar waNumber={c.waNumber} />

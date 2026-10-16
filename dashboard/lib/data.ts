@@ -14,7 +14,12 @@ export interface Me {
   whatsappPhoneNumberId: string;
 }
 
-export type ConversationStatus = "bot" | "needs_human" | "human_active";
+export type ConversationStatus = "bot" | "flagged" | "needs_human" | "human_active";
+
+/** "Needs you" covers both: handed over (assistant paused) and flagged (assistant still replying, owner should follow up). */
+export function needsAttention(status: ConversationStatus): boolean {
+  return status === "needs_human" || status === "flagged";
+}
 
 export interface ConversationSummary {
   id: string;

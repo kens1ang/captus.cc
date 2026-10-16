@@ -18,6 +18,7 @@ import {
   getMe,
   getServices,
   getSettings,
+  needsAttention,
 } from "@/lib/data";
 
 function isWithinLastDay(iso: string): boolean {
@@ -48,7 +49,7 @@ export default async function OverviewPage() {
   const allDone = steps.every((s) => s.done);
   const progress = Math.round((steps.filter((s) => s.done).length / steps.length) * 100);
 
-  const needsYou = conversations.filter((c) => c.status === "needs_human");
+  const needsYou = conversations.filter((c) => needsAttention(c.status));
   const activeToday = conversations.filter((c) => isWithinLastDay(c.lastMessageAt)).length;
   const upcoming = bookings.filter((b) => b.status === "confirmed");
 

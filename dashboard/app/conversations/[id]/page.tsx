@@ -42,7 +42,8 @@ export default async function ConversationPage(props: PageProps<"/conversations/
     else groups.push({ date, messages: [m] });
   }
 
-  const assistantActive = conversation.status === "bot";
+  // Flagged chats are still being answered by the assistant.
+  const assistantActive = conversation.status === "bot" || conversation.status === "flagged";
 
   return (
     <div className="flex h-full flex-col">
@@ -68,7 +69,19 @@ export default async function ConversationPage(props: PageProps<"/conversations/
 
       {conversation.status === "needs_human" && (
         <div className="border-b border-warn/25 bg-warn-soft px-4 py-2.5 text-sm text-warn">
-          The assistant flagged this chat for you. Reply below — it stays paused here until you hand it back.
+          The assistant handed this chat to you. Reply below — it stays paused here until you hand it back.
+        </div>
+      )}
+      {conversation.status === "flagged" && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2 border-b border-warn/25 bg-warn-soft px-4 py-2.5 text-sm text-warn">
+          <span className="min-w-0 flex-1">
+            The assistant couldn&apos;t answer something here and is still replying. Follow up below, or mark it resolved.
+          </span>
+          <form action={resumeBot.bind(null, id)}>
+            <SubmitButton variant="secondary" size="sm" pendingText="Resolving…">
+              Mark resolved
+            </SubmitButton>
+          </form>
         </div>
       )}
 

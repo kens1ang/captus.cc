@@ -1,5 +1,8 @@
 import { DateTime } from "luxon";
 import { reminderQueue } from "./queue.js";
+import { listTenants } from "../db/tenants.js";
+import { withTenant } from "../db/tenantContext.js";
+import { listBookingsAwaitingReminder } from "../db/bookings.js";
 
 // Utility-category WhatsApp template, created once via
 // src/scripts/create-reminder-template.ts and approved by Meta before any
@@ -29,6 +32,35 @@ export async function scheduleReminder(tenantId: string, bookingId: string, star
   } catch (err) {
     console.warn(`[bookingReminders] failed to schedule reminder for booking ${bookingId}:`, err);
   }
+}
+
+/**
+ * Re-queues every reminder that should exist, from the bookings table (the
+ * source of truth). Run on startup because the queue lives in Redis, and
+ * Render's free Redis keeps nothing across a restart — one restart used to
+ * silently cancel every reminder scheduled days ahead.
+ *
+ * Idempotent: a reminder still in the queue has the same jobId, so re-adding
+ * it is a no-op. A reminder whose send time passed while it was lost goes
+ * out now, as long as the appointment is still at least an hour away.
+ */
+export async function restoreReminders(): Promise<number> {
+  let restored = 0;
+  for (const tenant of await listTenants()) {
+    const bookings = await withTenant(tenant.id, (client) => listBookingsAwaitingReminder(client));
+    for (const b of bookings) {
+      const start = DateTime.fromISO(b.startsAt);
+      const remindAt = start.minus({ hours: LEAD_TIME_HOURS });
+      const overdue = remindAt <= DateTime.now();
+      if (overdue && start.diff(DateTime.now()).as("hours") < 1) continue; // too late to be useful
+      const delay = Math.max(0, remindAt.diff(DateTime.now()).as("milliseconds"));
+      const job = await reminderQueue.getJob(jobId(b.id));
+      if (job) continue;
+      await reminderQueue.add("remind", { tenantId: tenant.id, bookingId: b.id }, { jobId: jobId(b.id), delay });
+      restored++;
+    }
+  }
+  return restored;
 }
 
 /**

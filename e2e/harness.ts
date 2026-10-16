@@ -214,9 +214,11 @@ export class Customer {
   async ask(msg: InboundMessage | string, timeoutMs = 120_000): Promise<string[]> {
     const before = mock.messagesTo(this.number).length;
     await this.send(msg);
-    const all = await mock.waitFor(this.number, before + 1, timeoutMs);
-    // Give a trailing document/second message a moment to land too.
-    await sleep(1500);
+    // Wait for a TEXT reply specifically: a document the bot sends mid-turn
+    // (menu PDF) arrives before its text answer, which can be seconds later.
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline && !mock.messagesTo(this.number).slice(before).some((o) => o.type === "text")) await sleep(250);
+    await sleep(1500); // let anything trailing land too
     return mock.messagesTo(this.number).slice(before).map((o) => o.text ?? (o.document ? `[document: ${o.document.filename}]` : `[${o.type}]`));
   }
 

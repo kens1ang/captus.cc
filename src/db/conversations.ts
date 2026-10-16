@@ -34,6 +34,34 @@ export async function getRecentMessages(client: PoolClient, conversationId: stri
   return result.rows.reverse();
 }
 
+/**
+ * What the reply agent sees verbatim: the last `minRecent` messages, PLUS any
+ * older ones the long-term summary hasn't absorbed yet. The summary catches
+ * up in batches (lib/conversationMemory.ts), so without the second part a
+ * message could sit in neither the window nor the summary — the e2e harness
+ * caught the assistant recommending a dish with peanuts to a customer whose
+ * "I'm severely allergic to peanuts" had fallen into exactly that gap.
+ * `cap` bounds it if summarizing keeps failing on a very long chat.
+ */
+export async function getReplyHistory(
+  client: PoolClient,
+  conversationId: string,
+  minRecent: number,
+  summaryThroughMessageAt: string | Date | null,
+  cap = 60,
+): Promise<StoredMessage[]> {
+  const result = await client.query<StoredMessage>(
+    `SELECT direction, content FROM (
+       SELECT direction, content, created_at, row_number() OVER (ORDER BY created_at DESC) AS rn
+       FROM messages WHERE conversation_id = $1
+     ) m
+     WHERE rn <= $2 OR (rn <= $4 AND created_at > COALESCE($3::timestamptz, '-infinity'))
+     ORDER BY created_at`,
+    [conversationId, minRecent, summaryThroughMessageAt, cap],
+  );
+  return result.rows;
+}
+
 export interface ConversationMemory {
   summary: string | null;
   /** created_at of the newest message already folded into `summary`, or null if never summarized. */
@@ -131,7 +159,7 @@ export async function touchConversation(client: PoolClient, conversationId: stri
   await client.query(`UPDATE conversations SET last_message_at = now() WHERE id = $1`, [conversationId]);
 }
 
-export type ConversationStatus = "bot" | "needs_human" | "human_active";
+export type ConversationStatus = "bot" | "flagged" | "needs_human" | "human_active";
 
 export interface ConversationSummary {
   id: string;
@@ -192,9 +220,11 @@ export async function getConversation(client: PoolClient, conversationId: string
 
 /**
  * Stage 4 human takeover (architecture doc §5.6): the worker checks this
- * before auto-replying. 'needs_human' is set on escalation; 'human_active'
+ * before auto-replying. 'flagged' = the assistant couldn't answer something
+ * and told the owner, but keeps replying; 'needs_human' = handed over
+ * (complaint, asked for a person) and the assistant is paused; 'human_active'
  * when the owner sends a manual reply from the dashboard; 'bot' resumes
- * AI auto-replies.
+ * AI auto-replies (and clears a flag).
  */
 export async function setConversationStatus(
   client: PoolClient,

@@ -4,7 +4,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { auth } from "@clerk/nextjs/server";
 import { Link2Off } from "lucide-react";
 import { BackendError } from "@/lib/backend";
-import { getConversations, getMe, type Me } from "@/lib/data";
+import { getConversations, getMe, needsAttention as isNeedsAttention, type Me } from "@/lib/data";
 import { Sidebar } from "@/components/shell/Sidebar";
 import "./globals.css";
 
@@ -57,7 +57,7 @@ async function Shell({ children }: { children: React.ReactNode }) {
   }
   // Inbox badge — best-effort, a hiccup here shouldn't take down every page.
   const needsAttention = await getConversations()
-    .then((list) => list.filter((c) => c.status === "needs_human").length)
+    .then((list) => list.filter((c) => isNeedsAttention(c.status)).length)
     .catch(() => 0);
 
   return (
