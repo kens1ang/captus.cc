@@ -142,6 +142,41 @@ export interface BusinessInfo {
   sections: { [K in SectionKey]?: { data: SectionMap[K]; updatedAt: string } };
 }
 
+export type TemplateStatus = "APPROVED" | "PENDING" | "REJECTED" | "PAUSED" | "DISABLED" | "IN_APPEAL" | "PENDING_DELETION" | "DELETED" | "LIMIT_EXCEEDED";
+export type TemplateCategory = "MARKETING" | "UTILITY" | "AUTHENTICATION";
+
+export type TemplateButton =
+  | { type: "QUICK_REPLY"; text: string }
+  | { type: "URL"; text: string; url: string; example?: string[] }
+  | { type: "PHONE_NUMBER"; text: string; phone_number: string }
+  | { type: string; text: string };
+
+export interface TemplateComponent {
+  type: "HEADER" | "BODY" | "FOOTER" | "BUTTONS";
+  format?: "TEXT" | "IMAGE" | "VIDEO" | "DOCUMENT" | "LOCATION";
+  text?: string;
+  example?: { header_text?: string[]; body_text?: string[][] };
+  buttons?: TemplateButton[];
+}
+
+export interface MessageTemplate {
+  id: string;
+  name: string;
+  language: string;
+  status: TemplateStatus;
+  category: TemplateCategory;
+  components: TemplateComponent[];
+  rejected_reason?: string;
+  quality_score?: { score?: string };
+}
+
+/** `wabaId: null` = this business has no WhatsApp Business Account linked yet (set on the admin page). */
+export interface TemplatesResponse {
+  wabaId: string | null;
+  templates: MessageTemplate[];
+  reminderTemplateName: string;
+}
+
 export const getMe = cache(() => backendFetch<Me>("/api/me"));
 export const getSettings = cache(() => backendFetch<{ timezone: string }>("/api/settings"));
 export const getConversations = cache(() => backendFetch<ConversationSummary[]>("/api/conversations"));
@@ -152,6 +187,7 @@ export const getServices = cache(() => backendFetch<Service[]>("/api/services"))
 export const getBusinessHours = cache(() => backendFetch<BusinessHoursInterval[]>("/api/business-hours"));
 export const getBookings = cache(() => backendFetch<Booking[]>("/api/bookings"));
 export const getGoogleStatus = cache(() => backendFetch<GoogleStatus>("/api/google/status"));
+export const getTemplates = cache(() => backendFetch<TemplatesResponse>("/api/templates"));
 
 // --- Setup progress: one source of truth for the Overview checklist and the
 // Knowledge section nav's completion dots. ---

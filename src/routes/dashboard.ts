@@ -21,6 +21,15 @@ import { listUpcomingBookings, cancelBooking } from "../db/bookings.js";
 import { deleteCalendarEvent } from "../lib/googleCalendar.js";
 import { cancelReminder } from "../lib/bookingReminders.js";
 import { listDocuments, createDocument, deleteDocument } from "../db/documents.js";
+import { REMINDER_TEMPLATE_NAME } from "../lib/bookingReminders.js";
+import {
+  listTemplates,
+  createTemplate,
+  deleteTemplate,
+  validateTemplateInput,
+  MetaApiError,
+  type CreateTemplateInput,
+} from "../lib/whatsappTemplates.js";
 
 // Stage 4's "bare dashboard" API: conversation list, thread view + manual
 // reply/resume (human takeover), FAQ list/add/delete. All routes require a
@@ -317,5 +326,59 @@ export async function dashboardRoutes(app: FastifyInstance) {
     const deleted = await withTenant(tenantId, (client) => deleteDocument(client, req.params.id));
     if (!deleted) return reply.code(404).send({ error: "Document not found" });
     return { ok: true };
+  });
+
+  // --- WhatsApp message templates (live from Meta, see lib/whatsappTemplates.ts) ---
+
+  // `wabaId: null` tells the dashboard to show a "not connected" state rather
+  // than an error — templates belong to the WhatsApp Business Account, which
+  // an admin sets per business on the admin page.
+  app.get("/api/templates", async (req, reply) => {
+    const tenant = await getTenantById(req.dashboardUser!.tenantId);
+    const wabaId = tenant?.whatsappBusinessAccountId ?? null;
+    if (!wabaId) return { wabaId: null, templates: [], reminderTemplateName: REMINDER_TEMPLATE_NAME };
+    try {
+      return { wabaId, templates: await listTemplates(wabaId), reminderTemplateName: REMINDER_TEMPLATE_NAME };
+    } catch (err) {
+      if (err instanceof MetaApiError) return reply.code(502).send({ error: `WhatsApp: ${err.message}` });
+      throw err;
+    }
+  });
+
+  app.post<{ Body: CreateTemplateInput }>("/api/templates", async (req, reply) => {
+    const tenant = await getTenantById(req.dashboardUser!.tenantId);
+    const wabaId = tenant?.whatsappBusinessAccountId;
+    if (!wabaId) return reply.code(400).send({ error: "This business has no WhatsApp Business Account ID set yet" });
+    const input = req.body;
+    if (!input || !Array.isArray(input.components)) return reply.code(400).send({ error: "Invalid template" });
+    const invalid = validateTemplateInput(input);
+    if (invalid) return reply.code(400).send({ error: invalid });
+    try {
+      const created = await createTemplate(wabaId, {
+        name: input.name,
+        language: input.language,
+        category: input.category,
+        components: input.components,
+      });
+      return reply.code(201).send(created);
+    } catch (err) {
+      if (err instanceof MetaApiError) return reply.code(400).send({ error: `WhatsApp: ${err.message}` });
+      throw err;
+    }
+  });
+
+  app.delete<{ Params: { id: string }; Querystring: { name?: string } }>("/api/templates/:id", async (req, reply) => {
+    const tenant = await getTenantById(req.dashboardUser!.tenantId);
+    const wabaId = tenant?.whatsappBusinessAccountId;
+    const name = req.query.name?.trim();
+    if (!wabaId) return reply.code(400).send({ error: "This business has no WhatsApp Business Account ID set yet" });
+    if (!name || !/^\d+$/.test(req.params.id)) return reply.code(400).send({ error: "Template id and name are required" });
+    try {
+      await deleteTemplate(wabaId, req.params.id, name);
+      return { ok: true };
+    } catch (err) {
+      if (err instanceof MetaApiError) return reply.code(400).send({ error: `WhatsApp: ${err.message}` });
+      throw err;
+    }
   });
 }

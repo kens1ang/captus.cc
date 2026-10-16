@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
-import { BookOpen, CalendarDays, LayoutDashboard, Menu, MessagesSquare, Settings, ShieldCheck, X } from "lucide-react";
+import { BookOpen, CalendarDays, LayoutDashboard, Menu, MessageSquareText, MessagesSquare, Settings, ShieldCheck, X } from "lucide-react";
 import { cx } from "@/components/ui";
 
 interface NavItem {
@@ -63,6 +63,7 @@ export function Sidebar({
     { href: "/conversations", label: "Inbox", icon: MessagesSquare, badge: needsAttention },
     { href: "/knowledge", label: "Knowledge", icon: BookOpen },
     { href: "/bookings", label: "Bookings", icon: CalendarDays },
+    { href: "/templates", label: "Templates", icon: MessageSquareText },
     { href: "/settings", label: "Settings", icon: Settings },
   ];
   const adminItems: NavItem[] = isAdmin ? [{ href: "/admin", label: "All businesses", icon: ShieldCheck }] : [];
