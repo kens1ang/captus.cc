@@ -16,10 +16,7 @@ export interface Me {
 
 export type ConversationStatus = "bot" | "flagged" | "needs_human" | "human_active";
 
-/** "Needs you" covers both: handed over (assistant paused) and flagged (assistant still replying, owner should follow up). */
-export function needsAttention(status: ConversationStatus): boolean {
-  return status === "needs_human" || status === "flagged";
-}
+export { needsAttention } from "./status";
 
 export interface ConversationSummary {
   id: string;

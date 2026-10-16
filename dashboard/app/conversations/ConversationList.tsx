@@ -7,7 +7,8 @@ import { MessagesSquare, Search } from "lucide-react";
 import { ContactAvatar, StatusBadge } from "@/components/ConversationStatus";
 import { EmptyState, cx } from "@/components/ui";
 import { formatPhone, formatRelative } from "@/lib/formatDate";
-import { needsAttention, type ConversationStatus, type ConversationSummary } from "@/lib/data";
+import type { ConversationStatus, ConversationSummary } from "@/lib/data";
+import { needsAttention } from "@/lib/status";
 
 const FILTERS: { value: "all" | ConversationStatus; label: string }[] = [
   { value: "all", label: "All" },
