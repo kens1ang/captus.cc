@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useMemo, useRef, useState } from "react";
+import { useActionState, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Braces, ExternalLink, Phone, Plus, Reply, X } from "lucide-react";
 import { ActionStatus, SubmitButton } from "@/components/forms";
 import { TemplatePreview } from "@/components/TemplatePreview";
@@ -37,6 +37,17 @@ export function TemplateEditor() {
   const [footer, setFooter] = useState("");
   const [buttons, setButtons] = useState<EditorButton[]>([]);
   const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const pendingCaret = useRef<number | null>(null);
+
+  // Put the cursor right after an inserted variable as part of the same
+  // commit — a timeout could fire after the owner has already typed more,
+  // and yank the cursor back mid-sentence.
+  useLayoutEffect(() => {
+    if (pendingCaret.current === null) return;
+    bodyRef.current?.focus();
+    bodyRef.current?.setSelectionRange(pendingCaret.current, pendingCaret.current);
+    pendingCaret.current = null;
+  }, [body]);
 
   const bodyVars = useMemo(() => varNumbers(body), [body]);
   const headerHasVar = varNumbers(header).length > 0;
@@ -49,11 +60,7 @@ export function TemplateEditor() {
     const start = el?.selectionStart ?? body.length;
     const end = el?.selectionEnd ?? body.length;
     setBody(body.slice(0, start) + token + body.slice(end));
-    // After React commits the new value, put the cursor right after the inserted variable.
-    setTimeout(() => {
-      el?.focus();
-      el?.setSelectionRange(start + token.length, start + token.length);
-    }, 0);
+    pendingCaret.current = start + token.length;
   }
 
   function updateButton(i: number, patch: Partial<EditorButton>) {
