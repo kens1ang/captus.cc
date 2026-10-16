@@ -9,6 +9,19 @@ export interface AvailableSlot {
   endISO: string;
 }
 
+export interface Availability {
+  slots: AvailableSlot[];
+  /**
+   * Why the first day searched (the requested date, else today) has nothing
+   * open, or null if it has slots. Without this the model only sees "no
+   * slots today" and fills the gap itself — seen on a real phone: at 5pm on
+   * a Friday, open till 6, it told the customer "we're closed today" and
+   * then "slots usually get booked up by late afternoon", neither true (the
+   * real reason was the 30-minute minimum notice).
+   */
+  firstDayNote: string | null;
+}
+
 const SLOT_GRID_MINUTES = 30; // candidate start times are on a 30-minute grid
 const MIN_LEAD_TIME_MINUTES = 30; // can't book something starting in the next 30 minutes
 const SEARCH_DAYS_AHEAD = 14;
@@ -74,9 +87,9 @@ export async function computeAvailableSlots(
   capacity: number,
   preferredDate?: string,
   preferredTime?: string,
-): Promise<AvailableSlot[]> {
+): Promise<Availability> {
   const hours = await listBusinessHours(client);
-  if (hours.length === 0) return [];
+  if (hours.length === 0) return { slots: [], firstDayNote: "No opening hours are set, so nothing can be booked." };
 
   const now = DateTime.now().setZone(timezone);
   const rangeStart = now;
@@ -94,30 +107,56 @@ export async function computeAvailableSlots(
   const startDayOffset = preferred?.isValid ? Math.max(0, Math.floor(preferred.startOf("day").diff(now.startOf("day"), "days").days)) : 0;
   const timeMatch = preferredTime?.match(/^(\d{1,2}):(\d{2})$/);
 
-  /** Every open slot on one day, in order. */
-  function openSlotsOn(dayOffset: number): DateTime[] {
+  /** Every open slot on one day, in order, plus counts of why the rest were dropped. */
+  function scanDay(dayOffset: number) {
     const day = now.plus({ days: dayOffset }).startOf("day");
     const dayOfWeek = day.weekday % 7; // luxon: 1=Mon..7=Sun -> 0=Sun..6=Sat, matching schema
+    const intervals = hours.filter((h) => h.dayOfWeek === dayOfWeek);
     const open: DateTime[] = [];
-    for (const interval of hours.filter((h) => h.dayOfWeek === dayOfWeek)) {
+    let tooSoon = 0;
+    let taken = 0;
+    for (const interval of intervals) {
       const [startH, startM] = interval.startTime.split(":").map(Number);
       const [endH, endM] = interval.endTime.split(":").map(Number);
       const intervalStart = day.set({ hour: startH, minute: startM });
       const intervalEnd = day.set({ hour: endH, minute: endM });
 
       for (let slotStart = intervalStart; slotStart.plus({ minutes: durationMinutes }) <= intervalEnd; slotStart = slotStart.plus({ minutes: SLOT_GRID_MINUTES })) {
-        if (slotStart < earliestStart) continue;
+        if (slotStart < earliestStart) {
+          tooSoon++;
+          continue;
+        }
         const slotEnd = slotStart.plus({ minutes: durationMinutes });
         const clashesLocally = peakConcurrent(slotStart, slotEnd, localBookings) >= capacity;
         const clashesOnCalendar = busyBlocks.some((b) => overlaps(slotStart, slotEnd, b.start, b.end));
         if (!clashesLocally && !clashesOnCalendar) open.push(slotStart);
+        else taken++;
       }
     }
-    return open;
+    return { day, open, closed: intervals.length === 0, tooSoon, taken };
   }
 
+  /** Plain-language reason a day has no open slots, for the model to pass on rather than invent. */
+  function noteFor(scan: ReturnType<typeof scanDay>): string | null {
+    if (scan.open.length) return null;
+    const dayName = scan.day.hasSame(now, "day") ? "Today" : scan.day.toFormat("cccc d LLL");
+    if (scan.closed) return `${dayName} is a closed day (no opening hours).`;
+    if (scan.tooSoon && !scan.taken) {
+      return scan.day.hasSame(now, "day")
+        ? `No times left today: bookings need at least ${MIN_LEAD_TIME_MINUTES} minutes' notice, and the remaining start times before closing are too soon. The business is still open — this is only about notice time.`
+        : `${dayName} has no times left that meet the ${MIN_LEAD_TIME_MINUTES}-minute minimum notice.`;
+    }
+    if (scan.taken && !scan.tooSoon) return `${dayName} is fully booked.`;
+    if (scan.taken && scan.tooSoon) return `${dayName} has no times left: the later ones are already booked and the earlier ones are too soon to book (${MIN_LEAD_TIME_MINUTES}-minute minimum notice).`;
+    return `${dayName}'s opening hours are shorter than this service's ${durationMinutes} minutes.`;
+  }
+
+  let firstDayNote: string | null = null;
+
   for (let dayOffset = startDayOffset; dayOffset < SEARCH_DAYS_AHEAD && slots.length < MAX_SLOTS_RETURNED; dayOffset++) {
-    let open = openSlotsOn(dayOffset);
+    const scan = scanDay(dayOffset);
+    if (dayOffset === startDayOffset) firstDayNote = noteFor(scan);
+    let open = scan.open;
     if (timeMatch && dayOffset === startDayOffset && open.length) {
       // The ones nearest the requested time, then back in time order.
       const target = open[0].set({ hour: Number(timeMatch[1]), minute: Number(timeMatch[2]) });
@@ -132,7 +171,7 @@ export async function computeAvailableSlots(
     }
   }
 
-  return slots;
+  return { slots, firstDayNote };
 }
 
 /**

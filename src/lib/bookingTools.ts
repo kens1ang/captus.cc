@@ -32,7 +32,7 @@ export function buildBookingTools(services: Service[]): ToolDeclaration[] {
     {
       name: CHECK_AVAILABILITY,
       description:
-        "Looks up real open appointment slots for a service. ALWAYS call this before offering or booking a time — never guess or invent availability yourself, and never assume a day is free just because you weren't shown otherwise.",
+        "Looks up real open appointment slots for a service. ALWAYS call this before offering or booking a time — never guess or invent availability yourself, and never assume a day is free just because you weren't shown otherwise. If the result includes why_nothing_on_requested_day, that is the real reason — tell the customer that, and never make up a different one (e.g. 'we're closed' or 'usually booked up') when it doesn't say so.",
       parameters: {
         type: "OBJECT",
         properties: {
@@ -172,7 +172,7 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
 
     const date = call.args.date as string | undefined;
     const time = call.args.time as string | undefined;
-    const slots = await withTenant(ctx.tenantId, (client) =>
+    const { slots, firstDayNote } = await withTenant(ctx.tenantId, (client) =>
       computeAvailableSlots(client, ctx.tenantId, ctx.timezone, service.durationMinutes, service.capacity, date, time),
     );
     return {
@@ -186,6 +186,9 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
       // If these slots fall on a different date than requested, the label
       // makes that obvious — say so rather than booking the wrong day.
       slots: slots.map((s) => ({ start_iso: s.startISO, label: label(s.startISO, s.endISO, ctx.timezone) })),
+      // Set when the requested day (or today) has nothing — the real reason,
+      // to pass on as-is. Never make up another one ("usually booked up").
+      ...(firstDayNote ? { why_nothing_on_requested_day: firstDayNote } : {}),
     };
   }
 
