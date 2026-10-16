@@ -35,9 +35,13 @@ function renderText(text: string, samples: string[] = []): ReactNode[] {
           </span>
         ),
       );
-    } else if (tok.startsWith("*")) out.push(<strong key={key}>{tok.slice(1, -1)}</strong>);
-    else if (tok.startsWith("_")) out.push(<em key={key}>{tok.slice(1, -1)}</em>);
-    else out.push(<s key={key}>{tok.slice(1, -1)}</s>);
+    } else {
+      // Formatting can wrap variables (e.g. *{{2}}*), so render the inside too.
+      const inner = renderText(tok.slice(1, -1), samples);
+      if (tok.startsWith("*")) out.push(<strong key={key}>{inner}</strong>);
+      else if (tok.startsWith("_")) out.push(<em key={key}>{inner}</em>);
+      else out.push(<s key={key}>{inner}</s>);
+    }
     last = m.index! + tok.length;
   }
   if (last < text.length) out.push(text.slice(last));
