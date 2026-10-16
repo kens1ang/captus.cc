@@ -45,6 +45,36 @@ What's built, and a backlog of what could come next. Effort is rough: **S** ≈ 
 
 ## Backlog
 
+### Differentiators (what competitors don't do)
+These build trust and keep owners subscribed. Do them before broad feature parity.
+
+#### 1. Owner runs Captus from WhatsApp
+The owner's own number is a registered "owner contact". Messages from it are treated as commands, never as customer chats.
+- **Knowledge updates by chat.** For example, "Closed this Saturday" or "Facial promo RM99 until end of month". The AI turns it into a change and asks for confirmation ("Got it: closed Sat 18 Oct. Reply YES to save"). Promos and closures expire on their own.
+- **Answer handovers in place.** The owner replies (or swipe-replies) to the handover alert, and Captus sends that text to the customer from the business number.
+- **9pm daily summary.** For example, "14 enquiries, 6 booked, 2 need you". It needs an approved utility template, because the owner may not have messaged in the last 24h.
+- **Needs:** owner numbers stored per business (today `OWNER_NOTIFY_NUMBER` is one global number), a "who is this" check before the customer flow, and an audit log of every knowledge change made from chat.
+- **Effort:** M + M + S ≈ 1–2 weeks in total. Each piece ships on its own.
+
+#### 2. Shadow mode before going live
+Captus drafts a reply for every real chat but never sends it. Its draft is shown next to the owner's real reply, with a match score ("agreed with you 87% of the time"). The owner turns the bot on once they trust it.
+- **Catch:** Captus can only see the owner's real replies if they go through Captus. That happens in two cases:
+  - **Coexistence:** the owner keeps using the WhatsApp Business app, and Meta forwards those replies as echo webhooks. This is the real version.
+  - **Dashboard inbox:** until coexistence exists, the owner replies from the dashboard and the draft sits beside the reply box. This also covers "Suggested replies" below.
+- A quick preview is possible today by replaying chats from "Learn from past chats": "here's what I would have said to your last 50 customers."
+- **Scoring:** a cheap AI judge checks each pair: same facts (prices, times)? Same intent? Any conflict? Show the misses first. They make good knowledge-base fixes.
+- **Effort:** M (dashboard version / replay) + M (after coexistence).
+
+#### 3. Demand insights: what customers want that you don't sell
+A nightly job tags each day's enquiries: topic, products or services mentioned, on the menu or not, booked or not, time of day. A weekly or monthly report then surfaces patterns:
+- "31 people asked about Saturday classes, and you don't run any"
+- "Keratin came up 18 times, but it's not on your menu"
+- "Most enquiries arrive between 9 and 11pm"
+- Includes the **unanswered-questions** list, i.e. the gaps in the knowledge base.
+- Delivered on WhatsApp (feature 1) and the dashboard Overview.
+- **Cost:** one cheap AI pass per conversation per day, not per message. It's only useful above roughly 100 enquiries a month, so show it once there's enough data.
+- **Effort:** M.
+
 ### Before real paying customers (must-do)
 | Item | Why | Effort |
 |---|---|---|
@@ -61,7 +91,7 @@ What's built, and a backlog of what could come next. Effort is rough: **S** ≈ 
 | Item | Notes | Effort |
 |---|---|---|
 | **Embedded Signup (Tech Provider)** | The business connects its own number in a few clicks, with no admin page and no copying IDs. Unlocks the two items below. | L |
-| Coexistence (keep using the WhatsApp Business app on the same number) | Owners can still reply from their phone. Big selling point for small businesses. | M (after Embedded Signup) |
+| Coexistence (keep using the WhatsApp Business app on the same number) | Owners can still reply from their phone. Big selling point for small businesses. Also unlocks the full version of shadow mode. | M (after Embedded Signup) |
 | **Learn from past chats** | The owner uploads WhatsApp chat exports, and the AI drafts the knowledge base (prices, common questions, tone) for the owner to approve. Needs the paid key and a consent checkbox, and raw files are deleted after processing. Later: Meta's history sync (up to 6 months) through coexistence. | M |
 | Website import | Paste a URL, crawl the site, draft the knowledge base. | M |
 | Self-serve sign-up + trial | Today businesses are added from the admin page. | M |
@@ -90,9 +120,8 @@ What's built, and a backlog of what could come next. Effort is rough: **S** ≈ 
 | Interactive buttons and lists | Slot picking and yes/no confirmations as WhatsApp buttons instead of typed replies. | M |
 | Template status webhook | Instant status updates instead of polling every 10s. | S |
 | Media template headers | Image/PDF at the top of a template. | S |
-| Suggested replies for the owner | When the owner takes over, the AI drafts a reply for them to edit and send. | S |
+| Suggested replies for the owner | When the owner takes over, the AI drafts a reply for them to edit and send. Built with shadow mode (above). | S |
 | "Teach the bot" from the inbox | Turn the owner's manual answer into a new FAQ in one click. | S |
-| Unanswered-questions report | Lists questions the bot couldn't answer, so the owner can fill the gaps. | S |
 | Hybrid search + reranking | Only for businesses with big catalogs, so it could be a per-plan setting. | M |
 
 ### Team and multi-location
