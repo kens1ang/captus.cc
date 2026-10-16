@@ -49,10 +49,11 @@ export function TemplateEditor() {
     const start = el?.selectionStart ?? body.length;
     const end = el?.selectionEnd ?? body.length;
     setBody(body.slice(0, start) + token + body.slice(end));
-    requestAnimationFrame(() => {
+    // After React commits the new value, put the cursor right after the inserted variable.
+    setTimeout(() => {
       el?.focus();
       el?.setSelectionRange(start + token.length, start + token.length);
-    });
+    }, 0);
   }
 
   function updateButton(i: number, patch: Partial<EditorButton>) {
@@ -160,7 +161,8 @@ export function TemplateEditor() {
               />
             </Field>
             <div className="-mt-3">
-              <Button type="button" size="sm" variant="secondary" onClick={insertVariable}>
+              {/* preventDefault on mousedown keeps focus (and the cursor position) in the body, so typing continues there instead of on this button — where every space would press it again. */}
+              <Button type="button" size="sm" variant="secondary" onMouseDown={(e) => e.preventDefault()} onClick={insertVariable}>
                 <Braces className="size-3.5" /> Add variable
               </Button>
             </div>
