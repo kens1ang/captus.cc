@@ -23,7 +23,6 @@ export interface Availability {
 }
 
 const SLOT_GRID_MINUTES = 30; // candidate start times are on a 30-minute grid
-const MIN_LEAD_TIME_MINUTES = 30; // can't book something starting in the next 30 minutes
 const SEARCH_DAYS_AHEAD = 14;
 const MAX_SLOTS_RETURNED = 8;
 
@@ -52,6 +51,14 @@ function peakConcurrent(slotStart: DateTime, slotEnd: DateTime, bookings: { star
     if (n > peak) peak = n;
   }
   return peak;
+}
+
+/** "30 minutes", "2 hours", "1 day" — for the reason given to customers. Grammatically pairs with a following "' notice". */
+function describeNotice(minutes: number): string {
+  const plural = (n: number, unit: string) => `${n} ${unit}${n === 1 ? "" : "s"}`;
+  if (minutes % (60 * 24) === 0 && minutes > 0) return plural(minutes / (60 * 24), "day");
+  if (minutes % 60 === 0 && minutes > 0) return plural(minutes / 60, "hour");
+  return plural(minutes, "minute");
 }
 
 /**
@@ -85,6 +92,7 @@ export async function computeAvailableSlots(
   timezone: string,
   durationMinutes: number,
   capacity: number,
+  minNoticeMinutes: number,
   preferredDate?: string,
   preferredTime?: string,
 ): Promise<Availability> {
@@ -100,7 +108,7 @@ export async function computeAvailableSlots(
     queryFreeBusy(tenantId, rangeStart.toISO()!, rangeEnd.toISO()!),
   ]);
 
-  const earliestStart = now.plus({ minutes: MIN_LEAD_TIME_MINUTES });
+  const earliestStart = now.plus({ minutes: minNoticeMinutes });
   const slots: AvailableSlot[] = [];
 
   const preferred = preferredDate ? DateTime.fromISO(preferredDate, { zone: timezone }) : null;
@@ -115,6 +123,7 @@ export async function computeAvailableSlots(
     const open: DateTime[] = [];
     let tooSoon = 0;
     let taken = 0;
+    let lastStart: DateTime | null = null; // latest start time that fits in the day's hours, booked or not
     for (const interval of intervals) {
       const [startH, startM] = interval.startTime.split(":").map(Number);
       const [endH, endM] = interval.endTime.split(":").map(Number);
@@ -122,6 +131,7 @@ export async function computeAvailableSlots(
       const intervalEnd = day.set({ hour: endH, minute: endM });
 
       for (let slotStart = intervalStart; slotStart.plus({ minutes: durationMinutes }) <= intervalEnd; slotStart = slotStart.plus({ minutes: SLOT_GRID_MINUTES })) {
+        if (!lastStart || slotStart > lastStart) lastStart = slotStart;
         if (slotStart < earliestStart) {
           tooSoon++;
           continue;
@@ -133,7 +143,7 @@ export async function computeAvailableSlots(
         else taken++;
       }
     }
-    return { day, open, closed: intervals.length === 0, tooSoon, taken };
+    return { day, open, closed: intervals.length === 0, tooSoon, taken, lastStart };
   }
 
   /** Plain-language reason a day has no open slots, for the model to pass on rather than invent. */
@@ -141,15 +151,25 @@ export async function computeAvailableSlots(
     if (scan.open.length) return null;
     const dayName = scan.day.hasSame(now, "day") ? "Today" : scan.day.toFormat("cccc d LLL");
     if (scan.closed) return `${dayName} is a closed day (no opening hours).`;
+    // Concrete times, not just the rule — "30 minutes' notice before 6pm
+    // closing" read as nonsense at 5:20pm (customer feedback). What matters
+    // is the last start time and the cut-off for booking it.
+    const notice = describeNotice(minNoticeMinutes);
+    const cutoff = scan.lastStart
+      ? ` The last ${durationMinutes}-minute slot ${scan.day.hasSame(now, "day") ? "today" : "that day"} starts at ${time(scan.lastStart)}, so it had to be booked by ${time(scan.lastStart.minus({ minutes: minNoticeMinutes }))}${scan.lastStart.minus({ minutes: minNoticeMinutes }).hasSame(scan.lastStart, "day") ? "" : ` on ${scan.lastStart.minus({ minutes: minNoticeMinutes }).toFormat("cccc d LLL")}`}.`
+      : "";
+    if (scan.tooSoon && !scan.taken && minNoticeMinutes === 0) {
+      return `No times left today: the last ${durationMinutes}-minute slot${scan.lastStart ? ` (${time(scan.lastStart)})` : ""} has already started.`;
+    }
     if (scan.tooSoon && !scan.taken) {
-      return scan.day.hasSame(now, "day")
-        ? `No times left today: bookings need at least ${MIN_LEAD_TIME_MINUTES} minutes' notice, and the remaining start times before closing are too soon. The business is still open — this is only about notice time.`
-        : `${dayName} has no times left that meet the ${MIN_LEAD_TIME_MINUTES}-minute minimum notice.`;
+      return `${scan.day.hasSame(now, "day") ? "No times left today" : `No times left on ${dayName}`}: bookings need at least ${notice}' notice.${cutoff} The business isn't closed — it's only the notice time.`;
     }
     if (scan.taken && !scan.tooSoon) return `${dayName} is fully booked.`;
-    if (scan.taken && scan.tooSoon) return `${dayName} has no times left: the later ones are already booked and the earlier ones are too soon to book (${MIN_LEAD_TIME_MINUTES}-minute minimum notice).`;
+    if (scan.taken && scan.tooSoon) return `${dayName} has no times left: the later ones are already booked, and the earlier ones are too soon (bookings need at least ${notice}' notice).`;
     return `${dayName}'s opening hours are shorter than this service's ${durationMinutes} minutes.`;
   }
+
+  const time = (t: DateTime) => t.toFormat("h:mm a");
 
   let firstDayNote: string | null = null;
 
@@ -187,11 +207,12 @@ export async function isSlotAvailable(
   durationMinutes: number,
   capacity: number,
   startISO: string,
+  minNoticeMinutes: number,
 ): Promise<boolean> {
   const slotStart = DateTime.fromISO(startISO).setZone(timezone);
   const slotEnd = slotStart.plus({ minutes: durationMinutes });
   const now = DateTime.now().setZone(timezone);
-  if (slotStart < now.plus({ minutes: MIN_LEAD_TIME_MINUTES })) return false;
+  if (slotStart < now.plus({ minutes: minNoticeMinutes })) return false;
 
   const hours = await listBusinessHours(client);
   const dayOfWeek = slotStart.weekday % 7;

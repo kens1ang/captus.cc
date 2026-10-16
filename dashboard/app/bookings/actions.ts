@@ -45,3 +45,13 @@ export async function deleteServiceAction(serviceId: string) {
   await backendFetch(`/api/services/${serviceId}`, { method: "DELETE" });
   revalidatePath("/", "layout");
 }
+
+export async function updateBookingNotice(_prev: ActionState, formData: FormData): Promise<ActionState> {
+  const minutes = Number(formData.get("bookingMinNoticeMinutes"));
+  if (!Number.isInteger(minutes) || minutes < 0) return fail("Choose how much notice you need");
+  return attempt(async () => {
+    await backendFetch("/api/settings", { method: "PUT", body: JSON.stringify({ bookingMinNoticeMinutes: minutes }) });
+    revalidatePath("/", "layout");
+    return "Saved";
+  });
+}

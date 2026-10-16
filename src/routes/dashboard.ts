@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { requireDashboardAuth } from "../lib/clerkAuth.js";
 import { withTenant } from "../db/tenantContext.js";
-import { getTenantById, updateTenantTimezone, updateTenantProfile } from "../db/tenants.js";
+import { getTenantById, updateTenantBookingNotice, updateTenantTimezone, updateTenantProfile } from "../db/tenants.js";
 import { sendTextMessage } from "../lib/whatsapp.js";
 import { ingestKnowledgeText, replaceKnowledgeSource } from "../lib/knowledgeIngest.js";
 import { listBusinessInfo, upsertBusinessInfo } from "../db/businessInfo.js";
@@ -183,13 +183,20 @@ export async function dashboardRoutes(app: FastifyInstance) {
 
   app.get("/api/settings", async (req) => {
     const tenant = await getTenantById(req.dashboardUser!.tenantId);
-    return { timezone: tenant?.timezone ?? "Asia/Singapore" };
+    return { timezone: tenant?.timezone ?? "Asia/Singapore", bookingMinNoticeMinutes: tenant?.bookingMinNoticeMinutes ?? 30 };
   });
 
-  app.put<{ Body: { timezone: string } }>("/api/settings", async (req, reply) => {
+  // Either field on its own: the timezone lives on Settings, the notice on Booking setup.
+  app.put<{ Body: { timezone?: string; bookingMinNoticeMinutes?: number } }>("/api/settings", async (req, reply) => {
+    const tenantId = req.dashboardUser!.tenantId;
     const timezone = req.body?.timezone?.trim();
-    if (!timezone) return reply.code(400).send({ error: "timezone is required" });
-    await updateTenantTimezone(req.dashboardUser!.tenantId, timezone);
+    const notice = req.body?.bookingMinNoticeMinutes;
+    if (!timezone && notice === undefined) return reply.code(400).send({ error: "timezone or bookingMinNoticeMinutes is required" });
+    if (notice !== undefined && (!Number.isInteger(notice) || notice < 0 || notice > 60 * 24 * 30)) {
+      return reply.code(400).send({ error: "bookingMinNoticeMinutes must be a whole number of minutes, 0 to 30 days" });
+    }
+    if (timezone) await updateTenantTimezone(tenantId, timezone);
+    if (notice !== undefined) await updateTenantBookingNotice(tenantId, notice);
     return { ok: true };
   });
 

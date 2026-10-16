@@ -10,6 +10,7 @@ export interface Tenant {
   whatsappPhoneNumberId: string;
   whatsappBusinessAccountId: string | null;
   timezone: string;
+  bookingMinNoticeMinutes: number;
 }
 
 interface TenantRow {
@@ -19,6 +20,7 @@ interface TenantRow {
   whatsapp_phone_number_id: string;
   whatsapp_business_account_id: string | null;
   timezone: string;
+  booking_min_notice_minutes: number;
 }
 
 function toTenant(row: TenantRow): Tenant {
@@ -29,11 +31,12 @@ function toTenant(row: TenantRow): Tenant {
     whatsappPhoneNumberId: row.whatsapp_phone_number_id,
     whatsappBusinessAccountId: row.whatsapp_business_account_id,
     timezone: row.timezone,
+    bookingMinNoticeMinutes: row.booking_min_notice_minutes,
   };
 }
 
 const SELECT_COLUMNS =
-  "id, business_name, business_description, whatsapp_phone_number_id, whatsapp_business_account_id, timezone";
+  "id, business_name, business_description, whatsapp_phone_number_id, whatsapp_business_account_id, timezone, booking_min_notice_minutes";
 
 export async function getTenantById(id: string): Promise<Tenant | null> {
   const result = await pool.query<TenantRow>(`SELECT ${SELECT_COLUMNS} FROM tenants WHERE id = $1`, [id]);
@@ -68,6 +71,14 @@ export async function updateTenantTimezone(id: string, timezone: string): Promis
     id,
     timezone,
   ]);
+  return result.rows[0] ? toTenant(result.rows[0]) : null;
+}
+
+export async function updateTenantBookingNotice(id: string, minutes: number): Promise<Tenant | null> {
+  const result = await pool.query<TenantRow>(
+    `UPDATE tenants SET booking_min_notice_minutes = $2 WHERE id = $1 RETURNING ${SELECT_COLUMNS}`,
+    [id, minutes],
+  );
   return result.rows[0] ? toTenant(result.rows[0]) : null;
 }
 

@@ -179,6 +179,29 @@ async function featureScenarios(s: Seeded) {
     expect(/parking|Telawi|Bangsar Village/i.test(c.replies()[0]), "combined reply didn't address the parking question");
   });
 
+  // Found on a real phone: the third message arrived while the reply to the
+  // first two was being written — that reply ignored it, and it never got
+  // one of its own (it was wiped from the buffer when the first went out).
+  await scenario(P, "Message sent while the reply is being written still gets answered", async () => {
+    const c = newCustomer();
+    const typingBefore = mock.outbound.filter((o) => o.type === "typing").length;
+    for (const t of ["hey", "one more thing"]) {
+      note(`> ${t}`);
+      await c.send(t);
+      await sleep(500);
+    }
+    // The typing indicator goes out when the reply starts being written.
+    const deadline = Date.now() + 30_000;
+    while (mock.outbound.filter((o) => o.type === "typing").length === typingBefore && Date.now() < deadline) await sleep(100);
+    note("> (reply started) is there parking nearby?");
+    await c.send("is there parking nearby?");
+    await mock.waitFor(c.number, 1, 120_000);
+    await sleep(15_000); // let any rewrite / second reply land
+    for (const r of c.replies()) note(`< ${r}`);
+    expect(c.replies().some((r) => /parking|Telawi|Bangsar Village/i.test(r)), "the parking question sent mid-reply never got answered");
+    expect(c.replies().length <= 2, `${c.replies().length} replies`);
+  });
+
   await scenario(P, "Duplicate webhook delivery → one reply, one stored message", async () => {
     const c = newCustomer();
     const id = newMessageId();

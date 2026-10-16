@@ -1,4 +1,4 @@
-import { Worker } from "bullmq";
+import { Worker, type Job } from "bullmq";
 import { DateTime } from "luxon";
 import {
   connection,
@@ -80,6 +80,10 @@ function debounceJobId(from: string): string {
   return `wa_${from}`;
 }
 
+function rewriteKey(from: string): string {
+  return `replyrewrites:${from}`;
+}
+
 interface BufferedMessage {
   text: string;
   messageId: string;
@@ -138,10 +142,11 @@ async function sendHoldingReplyAndEscalate(input: {
   conversationId: string;
   combinedText: string;
   toolCalls: LoggedToolCall[];
+  handledCount: number;
 }): Promise<void> {
-  const { tenantId, from, waPhoneNumberId, conversationId, combinedText, toolCalls } = input;
+  const { tenantId, from, waPhoneNumberId, conversationId, combinedText, toolCalls, handledCount } = input;
   await sendTextMessage(waPhoneNumberId, from, HOLDING_REPLY);
-  await connection.del(bufferKey(from));
+  await clearHandled(from, handledCount);
   await withTenant(tenantId, async (client) => {
     await insertMessage(client, tenantId, conversationId, "out", HOLDING_REPLY, undefined, toolCalls.length ? toolCalls : undefined);
     await touchConversation(client, conversationId);
@@ -175,6 +180,42 @@ function shouldRetryMedia(err: unknown, job: { opts: { attempts?: number }; atte
   return false;
 }
 
+/**
+ * Drops the first `count` buffered messages — the ones a reply just
+ * covered — keeping anything that arrived while it was being written.
+ * (Deleting the whole buffer here is how a message sent mid-reply used to
+ * vanish.)
+ */
+async function clearHandled(from: string, count: number): Promise<void> {
+  await connection.ltrim(bufferKey(from), count, -1);
+}
+
+// One reply per customer at a time, across every job and retry. A message
+// arriving mid-reply gets its own one-off flush job (scheduleDebouncedReply),
+// which must wait for the reply in progress rather than answer in parallel.
+const REPLY_LOCK_MS = 3 * 60_000; // longer than any reply can take (every model timing out in turn)
+const REPLY_LOCK_RETRY_MS = 3000;
+// How many times in a row a reply may be thrown away because the customer
+// sent more while it was being written, before one is sent anyway — so
+// someone sending a steady stream of messages still hears back.
+const MAX_REWRITES = 2;
+
+async function withReplyLock(job: { data: ReplyDebounceJob; id?: string }, fn: () => Promise<void>): Promise<void> {
+  const { from } = job.data;
+  const key = `replylock:${from}`;
+  const token = `${job.id}:${Date.now()}`;
+  if (!(await connection.set(key, token, "PX", REPLY_LOCK_MS, "NX"))) {
+    await replyDebounceQueue.add("flush", job.data, { jobId: `${debounceJobId(from)}_${Date.now()}`, delay: REPLY_LOCK_RETRY_MS });
+    return;
+  }
+  try {
+    await fn();
+  } finally {
+    // Release only our own lock (it may have expired and been taken over).
+    await connection.eval(`if redis.call("get", KEYS[1]) == ARGV[1] then return redis.call("del", KEYS[1]) else return 0 end`, 1, key, token);
+  }
+}
+
 /** Per-contact rate limit — a generic guard against reply loops/spam bursts, regardless of cause. */
 async function isRateLimited(from: string): Promise<boolean> {
   const key = `ratelimit:${from}`;
@@ -185,9 +226,22 @@ async function isRateLimited(from: string): Promise<boolean> {
   return count > config.rateLimit.maxMessages;
 }
 
+/**
+ * "hey" / "one more thing" / "also..." — a message that's announcing more to
+ * come. Seen on a real phone: someone typing a three-part question at normal
+ * speed got answered after the second part, because the 7s window ran out
+ * while they were still typing the third. These get twice the wait.
+ */
+function looksLikeLeadIn(text: string): boolean {
+  const t = text.trim();
+  if (!t || t.includes("?") || t.split(/\s+/).length > 4) return false;
+  return /^(hi|hii+|hey+|hello|helo|hai|yo|one more|also|and|so|wait|btw|actually|um+|uh+|ok so)\b/i.test(t) || /(:|\.\.\.|…)$/.test(t);
+}
+
 /** Resets the debounce timer for a contact: only the flush job that survives without being reset actually replies. */
-async function scheduleDebouncedReply(tenantId: string, from: string, waPhoneNumberId: string): Promise<void> {
+async function scheduleDebouncedReply(tenantId: string, from: string, waPhoneNumberId: string, latestText: string): Promise<void> {
   const jobId = debounceJobId(from);
+  const delay = looksLikeLeadIn(latestText) ? config.messageDebounceMs * 2 : config.messageDebounceMs;
   const existing = await replyDebounceQueue.getJob(jobId);
   if (existing) {
     // Must remove in every non-active state, not just "delayed"/"waiting" —
@@ -197,26 +251,24 @@ async function scheduleDebouncedReply(tenantId: string, from: string, waPhoneNum
     // the first reply worked, every message after it buffered forever with
     // no flush ever scheduled.
     const state = await existing.getState();
-    if (state !== "active") {
-      await existing.remove();
+    if (state === "active") {
+      // A reply to this customer is being written right now. add() with the
+      // same jobId would be silently ignored (BullMQ dedupes, it doesn't
+      // throw), so this message would never get a reply of its own — and
+      // used to be wiped from the buffer when that reply went out. Seen on
+      // a real phone. Schedule a one-off flush instead; the reply in
+      // progress notices the new message and leaves it to this one.
+      await replyDebounceQueue.add("flush", { tenantId, from, waPhoneNumberId }, { jobId: `${jobId}_${Date.now()}`, delay });
+      return;
     }
+    await existing.remove();
   }
   try {
-    await replyDebounceQueue.add(
-      "flush",
-      { tenantId, from, waPhoneNumberId },
-      { jobId, delay: config.messageDebounceMs },
-    );
+    await replyDebounceQueue.add("flush", { tenantId, from, waPhoneNumberId }, { jobId, delay });
   } catch (err) {
-    // Rare race: a flush for this contact is actively processing right now,
-    // so its jobId can't be reused yet. Fall back to a one-off id so this
-    // message still gets scheduled instead of being silently stuck.
+    // Rare race: became active between getState() and add().
     console.warn(`[worker] debounce jobId collision for ${from}, using fallback id:`, err);
-    await replyDebounceQueue.add(
-      "flush",
-      { tenantId, from, waPhoneNumberId },
-      { jobId: `${jobId}_${Date.now()}`, delay: config.messageDebounceMs },
-    );
+    await replyDebounceQueue.add("flush", { tenantId, from, waPhoneNumberId }, { jobId: `${jobId}_${Date.now()}`, delay });
   }
 }
 
@@ -362,7 +414,7 @@ const inboundWorker = new Worker<InboundMessageJob>(
     const buffered: BufferedMessage = { text, messageId };
     await connection.rpush(bufferKey(from), JSON.stringify(buffered));
 
-    await scheduleDebouncedReply(tenantId, from, waPhoneNumberId);
+    await scheduleDebouncedReply(tenantId, from, waPhoneNumberId, text);
   },
   // Parallel across customers. BullMQ's default is ONE job at a time, which
   // made the 50th of 50 simultaneous customers wait ~2 minutes behind the
@@ -374,255 +426,272 @@ const inboundWorker = new Worker<InboundMessageJob>(
 // generates and sends ONE reply covering everything buffered since the last reply. ---
 const replyWorker = new Worker<ReplyDebounceJob>(
   REPLY_DEBOUNCE_QUEUE,
-  async (job) => {
-    const { tenantId, from, waPhoneNumberId } = job.data;
+  (job) => withReplyLock(job, () => writeReply(job)),
+  // Parallel across customers; withReplyLock keeps it to one reply at a
+  // time per customer. Kept under the DB pool size (10): each reply holds a
+  // connection only between AI calls.
+  { connection, concurrency: REPLY_CONCURRENCY },
+);
 
-    // Read (don't clear) the buffer — cleared only after a successful send,
-    // so a retry after a transient failure (e.g. Gemini 503) re-reads the
-    // same buffered messages instead of finding an empty list and silently
-    // dropping the reply.
-    const rawBuffered = await connection.lrange(bufferKey(from), 0, -1);
-    if (rawBuffered.length === 0) return; // nothing buffered (shouldn't normally happen)
+async function writeReply(job: Job<ReplyDebounceJob>): Promise<void> {
+  const { tenantId, from, waPhoneNumberId } = job.data;
 
-    const buffered: BufferedMessage[] = rawBuffered.map((raw) => JSON.parse(raw));
-    const lastMessageId = buffered[buffered.length - 1].messageId;
-    const combinedText = buffered.map((b) => b.text).join("\n");
-    console.log(`[worker] flushing ${buffered.length} buffered message(s) from ${from}: "${combinedText}"`);
+  // Read (don't clear) the buffer — cleared only after a successful send,
+  // so a retry after a transient failure (e.g. Gemini 503) re-reads the
+  // same buffered messages instead of finding an empty list and silently
+  // dropping the reply.
+  const rawBuffered = await connection.lrange(bufferKey(from), 0, -1);
+  if (rawBuffered.length === 0) return; // nothing buffered (shouldn't normally happen)
 
-    const tenant = await getTenantById(tenantId);
-    if (!tenant) {
-      throw new Error(`Tenant ${tenantId} not found (deleted after the message arrived?)`);
+  const buffered: BufferedMessage[] = rawBuffered.map((raw) => JSON.parse(raw));
+  const lastMessageId = buffered[buffered.length - 1].messageId;
+  const combinedText = buffered.map((b) => b.text).join("\n");
+  console.log(`[worker] flushing ${buffered.length} buffered message(s) from ${from}: "${combinedText}"`);
+
+  const tenant = await getTenantById(tenantId);
+  if (!tenant) {
+    throw new Error(`Tenant ${tenantId} not found (deleted after the message arrived?)`);
+  }
+
+  // DB-only: fetch conversation state + history in one short transaction.
+  // Deliberately NOT wrapping the Gemini calls below in this (or any)
+  // transaction — embedText/generateReply are network round-trips that can
+  // take seconds, and holding a pooled Postgres connection idle-in-transaction
+  // for that long is how a burst of concurrent replies exhausts the pool and
+  // wedges unrelated queries (webhook inserts, dashboard reads) behind LLM
+  // latency. Each DB step below gets its own short-lived withTenant() instead.
+  const convoState = await withTenant(tenantId, async (client) => {
+    const conversationId = await getOrCreateConversation(client, tenantId, from);
+
+    // Stage 4 human takeover (architecture doc §5.6): once a human has
+    // stepped in, or the chat was handed over (complaint, asked for a
+    // person), the bot goes silent — no auto-reply — until the dashboard
+    // resumes it back to 'bot'. 'flagged' is NOT silenced: the assistant
+    // only couldn't answer one thing, and shouldn't ignore the customer's
+    // next, perfectly answerable question while waiting for staff (it
+    // used to — found by the e2e harness).
+    const conversation = await getConversation(client, conversationId);
+    if (conversation && (conversation.status === "needs_human" || conversation.status === "human_active")) {
+      return { skip: true as const, conversationId };
     }
 
-    // DB-only: fetch conversation state + history in one short transaction.
-    // Deliberately NOT wrapping the Gemini calls below in this (or any)
-    // transaction — embedText/generateReply are network round-trips that can
-    // take seconds, and holding a pooled Postgres connection idle-in-transaction
-    // for that long is how a burst of concurrent replies exhausts the pool and
-    // wedges unrelated queries (webhook inserts, dashboard reads) behind LLM
-    // latency. Each DB step below gets its own short-lived withTenant() instead.
-    const convoState = await withTenant(tenantId, async (client) => {
-      const conversationId = await getOrCreateConversation(client, tenantId, from);
-
-      // Stage 4 human takeover (architecture doc §5.6): once a human has
-      // stepped in, or the chat was handed over (complaint, asked for a
-      // person), the bot goes silent — no auto-reply — until the dashboard
-      // resumes it back to 'bot'. 'flagged' is NOT silenced: the assistant
-      // only couldn't answer one thing, and shouldn't ignore the customer's
-      // next, perfectly answerable question while waiting for staff (it
-      // used to — found by the e2e harness).
-      const conversation = await getConversation(client, conversationId);
-      if (conversation && (conversation.status === "needs_human" || conversation.status === "human_active")) {
-        return { skip: true as const, conversationId };
-      }
-
-      // History already contains each buffered message as its own turn (inserted by worker 1),
-      // so the model sees them as sequential user turns rather than one flattened blob.
-      // Long-term memory of this customer — what scrolled out of the
-      // recent window, distilled (lib/conversationMemory.ts) — and the raw
-      // history, which also includes anything the summary hasn't caught up
-      // on yet, so no message is ever in neither.
-      const { summary, summaryThroughMessageAt } = await getConversationMemory(client, conversationId);
-      const history = await getReplyHistory(client, conversationId, HISTORY_LIMIT, summaryThroughMessageAt);
-      // Stage 5: services this tenant can be booked for, and documents it
-      // can send — [] for a tenant with neither, which keeps the reply
-      // agent's tool list exactly as before (FAQ-only).
-      const services = await listServices(client);
-      const documents = await listDocuments(client);
-      // Owner-entered business facts + voice (dashboard Knowledge pages) —
-      // the always-on part of the prompt, see lib/businessInfo.ts.
-      const sections = new Map((await listBusinessInfo(client)).map((r) => [r.section, r.data]));
-      const hours = await listBusinessHours(client);
-      const businessInfo = {
-        alwaysOn: renderAlwaysOnInfo({
-          profile: sections.get("profile") as ProfileData | undefined,
-          location: sections.get("location") as LocationData | undefined,
-          hours,
-        }),
-        assistantStyle: renderAssistantStyle(sections.get("assistant") as AssistantData | undefined),
-      };
-      return { skip: false as const, conversationId, history, services, documents, customerMemory: summary, businessInfo };
-    });
-
-    if (convoState.skip) {
-      console.log(`[worker] conversation with ${from} is human-handled — skipping auto-reply`);
-      await connection.del(bufferKey(from)); // still clear so it doesn't pile up; the human sees raw messages in the dashboard
-      return;
-    }
-
-    const { conversationId, history, services, documents, customerMemory, businessInfo } = convoState;
-
-    // Show typing as soon as we know we're actually going to reply (not
-    // right before send) — that's the whole point of it masking LLM latency.
-    await sendTypingIndicator(waPhoneNumberId, lastMessageId);
-
-    // Embed the combined buffered text (better intent signal than any single
-    // fragment) for RAG lookup — no DB connection held during this network call.
-    // If embedding fails, answer without the FAQ lookup rather than not at
-    // all — the always-on business info (hours, prices, policies) is still in
-    // the prompt, which covers most questions. There's no fallback embedding
-    // model to switch to (see config.gemini.embeddingModel).
-    let knowledge: { content: string }[] = [];
-    try {
-      const queryEmbedding = await embedText(combinedText);
-      knowledge = await withTenant(tenantId, (client) => searchKnowledge(client, queryEmbedding, RAG_TOP_K));
-    } catch (err) {
-      console.warn(`[worker] FAQ lookup failed for ${from}, replying without it:`, err);
-      if (err instanceof GeminiError && (err.kind === "auth" || err.kind === "billing" || err.kind === "model_not_found" || err.kind === "quota_exhausted")) {
-        await alertOperator(`embed:${err.kind}`, `FAQ search is down (${err.message}). Replies still go out, but without FAQ answers.`);
-      }
-    }
-    const systemPrompt = buildSystemPrompt(
-      tenant.businessName,
-      tenant.businessDescription,
-      knowledge.map((k) => k.content),
-      tenant.timezone,
-      services,
-      documents,
-      customerMemory,
-      businessInfo,
-    );
-
-    const chatHistory: ChatTurn[] = history.map((m) => ({
-      role: m.direction === "in" ? "user" : "model",
-      text: m.content,
-    }));
-
-    // Combined tool palette — each family's own module owns executing its
-    // own tool calls; this is just the dispatch between them by name, so
-    // neither module needs to know the other exists.
-    const actionTools = [...buildBookingTools(services), ...buildDocumentTools(documents)];
-    const executeTool = (call: ToolCall): Promise<unknown> => {
-      if (BOOKING_TOOL_NAMES.includes(call.name)) {
-        return executeBookingTool({ tenantId, timezone: tenant.timezone, services, conversationId, contactWaNumber: from }, call);
-      }
-      if (DOCUMENT_TOOL_NAMES.includes(call.name)) {
-        return executeDocumentTool({ tenantId, waPhoneNumberId, contactWaNumber: from, documents }, call);
-      }
-      return Promise.resolve({ error: `Unknown tool "${call.name}"` });
+    // History already contains each buffered message as its own turn (inserted by worker 1),
+    // so the model sees them as sequential user turns rather than one flattened blob.
+    // Long-term memory of this customer — what scrolled out of the
+    // recent window, distilled (lib/conversationMemory.ts) — and the raw
+    // history, which also includes anything the summary hasn't caught up
+    // on yet, so no message is ever in neither.
+    const { summary, summaryThroughMessageAt } = await getConversationMemory(client, conversationId);
+    const history = await getReplyHistory(client, conversationId, HISTORY_LIMIT, summaryThroughMessageAt);
+    // Stage 5: services this tenant can be booked for, and documents it
+    // can send — [] for a tenant with neither, which keeps the reply
+    // agent's tool list exactly as before (FAQ-only).
+    const services = await listServices(client);
+    const documents = await listDocuments(client);
+    // Owner-entered business facts + voice (dashboard Knowledge pages) —
+    // the always-on part of the prompt, see lib/businessInfo.ts.
+    const sections = new Map((await listBusinessInfo(client)).map((r) => [r.section, r.data]));
+    const hours = await listBusinessHours(client);
+    const businessInfo = {
+      alwaysOn: renderAlwaysOnInfo({
+        profile: sections.get("profile") as ProfileData | undefined,
+        location: sections.get("location") as LocationData | undefined,
+        hours,
+      }),
+      assistantStyle: renderAssistantStyle(sections.get("assistant") as AssistantData | undefined),
     };
-    let result: Awaited<ReturnType<typeof runReplyTurn>>;
-    try {
-      result = await runReplyTurn(systemPrompt, chatHistory, actionTools, executeTool);
-    } catch (err) {
-      const toolCalls = err instanceof ReplyTurnFailedError ? err.toolCalls : [];
-      const cause = err instanceof ReplyTurnFailedError ? err.cause : err;
-      // Let the queue retry the whole job (a few seconds later, with backoff)
-      // only while that's both SAFE — nothing with side effects ran yet, so
-      // a rerun can't double-book — and USEFUL — the failure is the kind
-      // that clears up (overload, rate limit), not a dead key. On the last
-      // attempt, or when retrying can't help, the customer gets a holding
-      // reply and the chat goes to a human instead of silence.
-      const attemptsLeft = (job.opts.attempts ?? 1) - job.attemptsMade - 1;
-      if (toolCalls.length === 0 && isTransientFailure(cause) && attemptsLeft > 0) {
-        console.warn(`[worker] reply for ${from} failed, ${attemptsLeft} retr${attemptsLeft === 1 ? "y" : "ies"} left:`, cause);
-        throw err;
-      }
-      console.error(`[worker] reply for ${from} failed for good — sending holding reply and handing to a human:`, cause);
-      await sendHoldingReplyAndEscalate({ tenantId, from, waPhoneNumberId, conversationId, combinedText, toolCalls });
+    return { skip: false as const, conversationId, history, services, documents, customerMemory: summary, businessInfo };
+  });
+
+  if (convoState.skip) {
+    console.log(`[worker] conversation with ${from} is human-handled — skipping auto-reply`);
+    await clearHandled(from, buffered.length); // so they don't pile up; the human sees the raw messages in the dashboard
+    return;
+  }
+
+  const { conversationId, history, services, documents, customerMemory, businessInfo } = convoState;
+
+  // Show typing as soon as we know we're actually going to reply (not
+  // right before send) — that's the whole point of it masking LLM latency.
+  await sendTypingIndicator(waPhoneNumberId, lastMessageId);
+
+  // Embed the combined buffered text (better intent signal than any single
+  // fragment) for RAG lookup — no DB connection held during this network call.
+  // If embedding fails, answer without the FAQ lookup rather than not at
+  // all — the always-on business info (hours, prices, policies) is still in
+  // the prompt, which covers most questions. There's no fallback embedding
+  // model to switch to (see config.gemini.embeddingModel).
+  let knowledge: { content: string }[] = [];
+  try {
+    const queryEmbedding = await embedText(combinedText);
+    knowledge = await withTenant(tenantId, (client) => searchKnowledge(client, queryEmbedding, RAG_TOP_K));
+  } catch (err) {
+    console.warn(`[worker] FAQ lookup failed for ${from}, replying without it:`, err);
+    if (err instanceof GeminiError && (err.kind === "auth" || err.kind === "billing" || err.kind === "model_not_found" || err.kind === "quota_exhausted")) {
+      await alertOperator(`embed:${err.kind}`, `FAQ search is down (${err.message}). Replies still go out, but without FAQ answers.`);
+    }
+  }
+  const systemPrompt = buildSystemPrompt(
+    tenant.businessName,
+    tenant.businessDescription,
+    knowledge.map((k) => k.content),
+    tenant.timezone,
+    services,
+    documents,
+    customerMemory,
+    businessInfo,
+  );
+
+  const chatHistory: ChatTurn[] = history.map((m) => ({
+    role: m.direction === "in" ? "user" : "model",
+    text: m.content,
+  }));
+
+  // Combined tool palette — each family's own module owns executing its
+  // own tool calls; this is just the dispatch between them by name, so
+  // neither module needs to know the other exists.
+  const actionTools = [...buildBookingTools(services), ...buildDocumentTools(documents)];
+  const executeTool = (call: ToolCall): Promise<unknown> => {
+    if (BOOKING_TOOL_NAMES.includes(call.name)) {
+      return executeBookingTool({ tenantId, timezone: tenant.timezone, minNoticeMinutes: tenant.bookingMinNoticeMinutes, services, conversationId, contactWaNumber: from }, call);
+    }
+    if (DOCUMENT_TOOL_NAMES.includes(call.name)) {
+      return executeDocumentTool({ tenantId, waPhoneNumberId, contactWaNumber: from, documents }, call);
+    }
+    return Promise.resolve({ error: `Unknown tool "${call.name}"` });
+  };
+  let result: Awaited<ReturnType<typeof runReplyTurn>>;
+  try {
+    result = await runReplyTurn(systemPrompt, chatHistory, actionTools, executeTool);
+  } catch (err) {
+    const toolCalls = err instanceof ReplyTurnFailedError ? err.toolCalls : [];
+    const cause = err instanceof ReplyTurnFailedError ? err.cause : err;
+    // Let the queue retry the whole job (a few seconds later, with backoff)
+    // only while that's both SAFE — nothing with side effects ran yet, so
+    // a rerun can't double-book — and USEFUL — the failure is the kind
+    // that clears up (overload, rate limit), not a dead key. On the last
+    // attempt, or when retrying can't help, the customer gets a holding
+    // reply and the chat goes to a human instead of silence.
+    const attemptsLeft = (job.opts.attempts ?? 1) - job.attemptsMade - 1;
+    if (toolCalls.length === 0 && isTransientFailure(cause) && attemptsLeft > 0) {
+      console.warn(`[worker] reply for ${from} failed, ${attemptsLeft} retr${attemptsLeft === 1 ? "y" : "ies"} left:`, cause);
+      throw err;
+    }
+    console.error(`[worker] reply for ${from} failed for good — sending holding reply and handing to a human:`, cause);
+    await sendHoldingReplyAndEscalate({ tenantId, from, waPhoneNumberId, conversationId, combinedText, toolCalls, handledCount: buffered.length });
+    return;
+  }
+
+  // The customer sent more while this was being written — this reply
+  // doesn't know about it (it's the "AI answered before I finished
+  // typing" case). Unless a booking tool already did something real,
+  // drop it: the newer message's own flush job answers everything
+  // together, and the buffer still holds all of it.
+  if (result.toolCalls.length === 0 && (await connection.llen(bufferKey(from))) > buffered.length) {
+    const rewrites = await connection.incr(rewriteKey(from));
+    await connection.expire(rewriteKey(from), 300);
+    if (rewrites <= MAX_REWRITES) {
+      console.log(`[worker] ${from} sent more while the reply was being written — rewriting it with the new message(s)`);
       return;
     }
+  }
 
-    // Deliberately NOT persisted yet — see below. If sendTextMessage throws
-    // (e.g. WhatsApp/Meta-side rejection), a message recorded here would
-    // (a) show as "sent" in the dashboard when it never reached the
-    // customer, and (b) poison the next retry's chatHistory above, which
-    // would then end on a "model" turn instead of "user" — Gemini rejects
-    // that outright, turning one WhatsApp-side failure into a second,
-    // unrelated one that eats the rest of the retry budget.
-    try {
-      await sendTextMessage(waPhoneNumberId, from, result.reply);
-    } catch (err) {
-      if (result.toolCalls.length > 0) {
-        // A booking tool already made a REAL side effect this turn (a
-        // Google Calendar event + a local bookings row) before the send
-        // failed. Rethrowing would let BullMQ retry this whole job from the
-        // top — re-running the LLM/tools from scratch and risking a genuine
-        // duplicate booking, not just a duplicate reply. That's strictly
-        // worse than an unconfirmed-by-text booking, so don't retry: record
-        // what happened, escalate to a human to confirm with the customer
-        // directly, and let the job succeed instead of throwing.
-        console.error(
-          `[worker] booking tool(s) succeeded but confirmation send failed for ${from} — not retrying (would risk a duplicate booking):`,
-          err,
-        );
-        await connection.del(bufferKey(from));
-        await withTenant(tenantId, async (client) => {
-          await insertMessage(client, tenantId, conversationId, "out", result.reply, undefined, result.toolCalls);
-          await touchConversation(client, conversationId);
-          await setConversationStatus(client, conversationId, "needs_human");
-        });
-        await notifyEscalation(
-          waPhoneNumberId,
-          from,
-          combinedText,
-          "booking was confirmed but WhatsApp send failed — please follow up with the customer directly",
-        );
-        return;
-      }
-      // No external side effect happened (plain FAQ turn) — safe to let
-      // BullMQ retry the whole job, same as before.
-      const attemptsLeft = (job.opts.attempts ?? 1) - job.attemptsMade - 1;
-      if (attemptsLeft > 0) throw err;
-      // Out of retries: WhatsApp keeps refusing this reply. Previously the
-      // job just died — the customer got nothing and nobody found out.
-      // Hand the chat to a human so it shows up in "Needs you", tell the
-      // business, and alert the operator: a send that keeps failing is
-      // usually OUR problem (expired token, number restricted by Meta).
-      console.error(`[worker] WhatsApp refused every attempt to reply to ${from} — handing to a human:`, err);
-      await connection.del(bufferKey(from));
-      await withTenant(tenantId, (client) => setConversationStatus(client, conversationId, "needs_human"));
-      const why = err instanceof Error ? err.message : String(err);
-      await alertOperator(`sendfail:${waPhoneNumberId}`, `WhatsApp is refusing replies from number ${waPhoneNumberId} (${why.slice(0, 200)}). Check the access token and the number's status in WhatsApp Manager.`);
-      try {
-        await notifyEscalation(waPhoneNumberId, from, combinedText, "the assistant's reply couldn't be delivered on WhatsApp — please contact the customer");
-      } catch (notifyErr) {
-        // Same channel, likely the same failure — the ops alert above is logged regardless.
-        console.error(`[worker] couldn't notify the business either:`, notifyErr);
-      }
-      return;
-    }
-    await connection.del(bufferKey(from)); // only clear once the reply has actually gone out
-
-    // Only record the reply (and any state it implies) once it's actually
-    // out the door — see the comment above.
-    await withTenant(tenantId, async (client) => {
-      await insertMessage(client, tenantId, conversationId, "out", result.reply, undefined, result.toolCalls);
-      await touchConversation(client, conversationId);
-      if (result.escalate) {
-        await setConversationStatus(client, conversationId, result.escalateKind === "follow_up" ? "flagged" : "needs_human");
-      }
-    });
-
-    // Fold anything that just scrolled out of the history window into the
-    // conversation's long-term memory. Strictly after the reply is sent and
-    // recorded, and swallowing its own errors: the customer already has
-    // their reply, so a summarization hiccup must never fail this job and
-    // trigger a retry that re-sends it.
-    try {
-      await maybeUpdateConversationSummary(tenantId, conversationId);
-    } catch (err) {
-      console.warn(`[worker] conversation summary update failed for ${conversationId} (reply already sent):`, err);
-    }
-
-    if (result.escalate) {
-      const followUp = result.escalateKind === "follow_up";
-      console.log(`[worker] ${followUp ? "flagging" : "handing over"} conversation with ${from}: ${result.escalateReason ?? "unspecified"}`);
+  // Deliberately NOT persisted yet — see below. If sendTextMessage throws
+  // (e.g. WhatsApp/Meta-side rejection), a message recorded here would
+  // (a) show as "sent" in the dashboard when it never reached the
+  // customer, and (b) poison the next retry's chatHistory above, which
+  // would then end on a "model" turn instead of "user" — Gemini rejects
+  // that outright, turning one WhatsApp-side failure into a second,
+  // unrelated one that eats the rest of the retry budget.
+  try {
+    await sendTextMessage(waPhoneNumberId, from, result.reply);
+  } catch (err) {
+    if (result.toolCalls.length > 0) {
+      // A booking tool already made a REAL side effect this turn (a
+      // Google Calendar event + a local bookings row) before the send
+      // failed. Rethrowing would let BullMQ retry this whole job from the
+      // top — re-running the LLM/tools from scratch and risking a genuine
+      // duplicate booking, not just a duplicate reply. That's strictly
+      // worse than an unconfirmed-by-text booking, so don't retry: record
+      // what happened, escalate to a human to confirm with the customer
+      // directly, and let the job succeed instead of throwing.
+      console.error(
+        `[worker] booking tool(s) succeeded but confirmation send failed for ${from} — not retrying (would risk a duplicate booking):`,
+        err,
+      );
+      await clearHandled(from, buffered.length);
+      await withTenant(tenantId, async (client) => {
+        await insertMessage(client, tenantId, conversationId, "out", result.reply, undefined, result.toolCalls);
+        await touchConversation(client, conversationId);
+        await setConversationStatus(client, conversationId, "needs_human");
+      });
       await notifyEscalation(
         waPhoneNumberId,
         from,
         combinedText,
-        followUp
-          ? `${result.escalateReason ?? "assistant couldn't answer"} (assistant is still replying — follow up when you can)`
-          : `${result.escalateReason ?? "needs a person"} (assistant paused — please reply)`,
+        "booking was confirmed but WhatsApp send failed — please follow up with the customer directly",
       );
+      return;
     }
-  },
-  // Parallel across customers — the reply job is keyed per customer, so two
-  // replies to the same customer never run at once. Kept under the DB pool
-  // size (10): each reply holds a connection only between AI calls.
-  { connection, concurrency: REPLY_CONCURRENCY },
-);
+    // No external side effect happened (plain FAQ turn) — safe to let
+    // BullMQ retry the whole job, same as before.
+    const attemptsLeft = (job.opts.attempts ?? 1) - job.attemptsMade - 1;
+    if (attemptsLeft > 0) throw err;
+    // Out of retries: WhatsApp keeps refusing this reply. Previously the
+    // job just died — the customer got nothing and nobody found out.
+    // Hand the chat to a human so it shows up in "Needs you", tell the
+    // business, and alert the operator: a send that keeps failing is
+    // usually OUR problem (expired token, number restricted by Meta).
+    console.error(`[worker] WhatsApp refused every attempt to reply to ${from} — handing to a human:`, err);
+    await clearHandled(from, buffered.length);
+    await withTenant(tenantId, (client) => setConversationStatus(client, conversationId, "needs_human"));
+    const why = err instanceof Error ? err.message : String(err);
+    await alertOperator(`sendfail:${waPhoneNumberId}`, `WhatsApp is refusing replies from number ${waPhoneNumberId} (${why.slice(0, 200)}). Check the access token and the number's status in WhatsApp Manager.`);
+    try {
+      await notifyEscalation(waPhoneNumberId, from, combinedText, "the assistant's reply couldn't be delivered on WhatsApp — please contact the customer");
+    } catch (notifyErr) {
+      // Same channel, likely the same failure — the ops alert above is logged regardless.
+      console.error(`[worker] couldn't notify the business either:`, notifyErr);
+    }
+    return;
+  }
+  await clearHandled(from, buffered.length); // only once the reply has actually gone out
+  await connection.del(rewriteKey(from));
+
+  // Only record the reply (and any state it implies) once it's actually
+  // out the door — see the comment above.
+  await withTenant(tenantId, async (client) => {
+    await insertMessage(client, tenantId, conversationId, "out", result.reply, undefined, result.toolCalls);
+    await touchConversation(client, conversationId);
+    if (result.escalate) {
+      await setConversationStatus(client, conversationId, result.escalateKind === "follow_up" ? "flagged" : "needs_human");
+    }
+  });
+
+  // Fold anything that just scrolled out of the history window into the
+  // conversation's long-term memory. Strictly after the reply is sent and
+  // recorded, and swallowing its own errors: the customer already has
+  // their reply, so a summarization hiccup must never fail this job and
+  // trigger a retry that re-sends it.
+  try {
+    await maybeUpdateConversationSummary(tenantId, conversationId);
+  } catch (err) {
+    console.warn(`[worker] conversation summary update failed for ${conversationId} (reply already sent):`, err);
+  }
+
+  if (result.escalate) {
+    const followUp = result.escalateKind === "follow_up";
+    console.log(`[worker] ${followUp ? "flagging" : "handing over"} conversation with ${from}: ${result.escalateReason ?? "unspecified"}`);
+    await notifyEscalation(
+      waPhoneNumberId,
+      from,
+      combinedText,
+      followUp
+        ? `${result.escalateReason ?? "assistant couldn't answer"} (assistant is still replying — follow up when you can)`
+        : `${result.escalateReason ?? "needs a person"} (assistant paused — please reply)`,
+    );
+  }
+}
 
 // --- Worker 3: fires once per booking, LEAD_TIME_HOURS before its start
 // (scheduled by lib/bookingReminders.ts at booking time, cancelled on

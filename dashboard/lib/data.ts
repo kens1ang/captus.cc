@@ -183,7 +183,7 @@ export interface TemplatesResponse {
 }
 
 export const getMe = cache(() => backendFetch<Me>("/api/me"));
-export const getSettings = cache(() => backendFetch<{ timezone: string }>("/api/settings"));
+export const getSettings = cache(() => backendFetch<{ timezone: string; bookingMinNoticeMinutes: number }>("/api/settings"));
 export const getConversations = cache(() => backendFetch<ConversationSummary[]>("/api/conversations"));
 export const getBusinessInfo = cache(() => backendFetch<BusinessInfo>("/api/business-info"));
 export const getKnowledgeChunks = cache(() => backendFetch<KnowledgeChunk[]>("/api/knowledge"));

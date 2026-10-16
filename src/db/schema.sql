@@ -106,6 +106,9 @@ ALTER TABLE knowledge_chunks ADD COLUMN IF NOT EXISTS tenant_id uuid REFERENCES 
 -- Stage 5: booking, per architecture doc §5.2 (Google Calendar as the
 -- source-of-truth for availability, not a from-scratch calendar).
 ALTER TABLE tenants ADD COLUMN IF NOT EXISTS timezone text NOT NULL DEFAULT 'Asia/Singapore';
+-- How far ahead a booking must be made (0 = right up to the start time).
+-- Per business: a barber takes walk-in-ish bookings, a caterer needs days.
+ALTER TABLE tenants ADD COLUMN IF NOT EXISTS booking_min_notice_minutes integer NOT NULL DEFAULT 30 CHECK (booking_min_notice_minutes >= 0);
 -- Set once per tenant when onboarding them — needed to create/manage THEIR
 -- WhatsApp message templates (booking reminders, future follow-ups), since
 -- templates are scoped to a WhatsApp Business Account, not a phone number,

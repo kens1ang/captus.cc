@@ -5,13 +5,27 @@ import { ActionForm, FormFooter } from "@/components/forms";
 import { GoogleCalendarCard } from "@/components/GoogleCalendarCard";
 import { ServiceRow } from "@/components/ServiceRow";
 import { Badge, Card, Field } from "@/components/ui";
-import { getBusinessHours, getGoogleStatus, getServices } from "@/lib/data";
-import { addService, deleteServiceAction, updateServiceAction } from "../actions";
+import { getBusinessHours, getGoogleStatus, getServices, getSettings } from "@/lib/data";
+import { addService, deleteServiceAction, updateBookingNotice, updateServiceAction } from "../actions";
 
 export const metadata = { title: "Booking setup" };
 
 const DAY_SHORT = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
 const WEEK = [1, 2, 3, 4, 5, 6, 0];
+
+// Minutes. A shop that takes near-walk-in bookings wants none; a caterer or
+// a home-visit service needs a day or two to prepare.
+const NOTICE_OPTIONS: [number, string][] = [
+  [0, "No minimum — right up to the start time"],
+  [15, "15 minutes"],
+  [30, "30 minutes"],
+  [60, "1 hour"],
+  [120, "2 hours"],
+  [240, "4 hours"],
+  [1440, "1 day"],
+  [2880, "2 days"],
+  [10080, "1 week"],
+];
 
 function Step({ n, title, description, children }: { n: number; title: string; description: string; children: ReactNode }) {
   return (
@@ -33,7 +47,10 @@ function Step({ n, title, description, children }: { n: number; title: string; d
 export default async function BookingSetupPage(props: PageProps<"/bookings/setup">) {
   const searchParams = await props.searchParams;
   const result = typeof searchParams.google === "string" ? searchParams.google : undefined;
-  const [services, google, hours] = await Promise.all([getServices(), getGoogleStatus(), getBusinessHours()]);
+  const [services, google, hours, settings] = await Promise.all([getServices(), getGoogleStatus(), getBusinessHours(), getSettings()]);
+  const notice = settings.bookingMinNoticeMinutes;
+  // Keep a value set some other way (API) selectable instead of silently showing the wrong one.
+  const noticeOptions = NOTICE_OPTIONS.some(([m]) => m === notice) ? NOTICE_OPTIONS : [...NOTICE_OPTIONS, [notice, `${notice} minutes`] as [number, string]];
   const openDays = WEEK.filter((d) => hours.some((h) => h.dayOfWeek === d));
 
   return (
@@ -73,11 +90,31 @@ export default async function BookingSetupPage(props: PageProps<"/bookings/setup
         </Card>
       </Step>
 
-      <Step n={2} title="Connect your calendar" description="So the assistant never double-books you, and new bookings land on your calendar.">
+      <Step n={2} title="Minimum notice" description="How far ahead customers must book. The assistant won't offer anything sooner, and tells customers why.">
+        <Card>
+          <ActionForm action={updateBookingNotice}>
+            <div className="p-5">
+              <Field label="Customers must book at least" htmlFor="booking-notice">
+                <select id="booking-notice" name="bookingMinNoticeMinutes" defaultValue={notice} className="control sm:max-w-xs">
+                  {noticeOptions.map(([m, label]) => (
+                    <option key={m} value={m}>
+                      {label}
+                      {m > 0 ? " ahead" : ""}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            </div>
+            <FormFooter />
+          </ActionForm>
+        </Card>
+      </Step>
+
+      <Step n={3} title="Connect your calendar" description="So the assistant never double-books you, and new bookings land on your calendar.">
         <GoogleCalendarCard google={google} result={result} />
       </Step>
 
-      <Step n={3} title="Opening hours" description="Bookings are only offered inside these hours. Shared with Knowledge › Location & hours.">
+      <Step n={4} title="Opening hours" description="Bookings are only offered inside these hours. Shared with Knowledge › Location & hours.">
         <Link
           href="/knowledge/location"
           className="group flex items-center gap-4 rounded-lg border border-line bg-panel p-4 shadow-xs transition-colors hover:border-line-strong"

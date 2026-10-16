@@ -114,6 +114,8 @@ function label(startISO: string, endISO: string, timezone: string): string {
 export interface BookingToolContext {
   tenantId: string;
   timezone: string;
+  /** How far ahead a booking must be made (tenant setting). */
+  minNoticeMinutes: number;
   services: Service[];
   conversationId: string;
   contactWaNumber: string;
@@ -173,7 +175,7 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
     const date = call.args.date as string | undefined;
     const time = call.args.time as string | undefined;
     const { slots, firstDayNote } = await withTenant(ctx.tenantId, (client) =>
-      computeAvailableSlots(client, ctx.tenantId, ctx.timezone, service.durationMinutes, service.capacity, date, time),
+      computeAvailableSlots(client, ctx.tenantId, ctx.timezone, service.durationMinutes, service.capacity, ctx.minNoticeMinutes, date, time),
     );
     return {
       service: service.name,
@@ -206,7 +208,7 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
     // that a slot offered a message or two ago is still open (another
     // customer, or a new calendar event, could have taken it since).
     const stillAvailable = await withTenant(ctx.tenantId, (client) =>
-      isSlotAvailable(client, ctx.tenantId, ctx.timezone, service.durationMinutes, service.capacity, startISO),
+      isSlotAvailable(client, ctx.tenantId, ctx.timezone, service.durationMinutes, service.capacity, startISO, ctx.minNoticeMinutes),
     );
     if (!stillAvailable) {
       return { success: false, error: "That slot is no longer available — call check_availability again for current options." };
@@ -258,7 +260,7 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
     // tool description: "the old booking is left untouched" is a real
     // guarantee, not just a hope).
     const stillAvailable = await withTenant(ctx.tenantId, (client) =>
-      isSlotAvailable(client, ctx.tenantId, ctx.timezone, service.durationMinutes, service.capacity, newStartISO),
+      isSlotAvailable(client, ctx.tenantId, ctx.timezone, service.durationMinutes, service.capacity, newStartISO, ctx.minNoticeMinutes),
     );
     if (!stillAvailable) {
       return { success: false, error: "That new time isn't available — call check_availability again and the existing booking is unchanged." };
