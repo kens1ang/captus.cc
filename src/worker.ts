@@ -18,8 +18,12 @@ import {
   describeMedia,
   isAnalyzableMedia,
   MAX_ANALYZABLE_MEDIA_BYTES,
+  ReplyTurnFailedError,
   type ChatTurn,
+  type LoggedToolCall,
 } from "./lib/gemini.js";
+import { GeminiError, isTransientFailure } from "./lib/llmFallback.js";
+import { alertOperator } from "./lib/opsAlert.js";
 import { buildSystemPrompt } from "./lib/systemPrompt.js";
 import { buildBookingTools, executeBookingTool, BOOKING_TOOL_NAMES } from "./lib/bookingTools.js";
 import { buildDocumentTools, executeDocumentTool, DOCUMENT_TOOL_NAMES } from "./lib/documentTools.js";
@@ -111,6 +115,45 @@ async function acknowledgeAndEscalate(
   }
   await sendTextMessage(waPhoneNumberId, from, ack);
   await notifyEscalation(waPhoneNumberId, from, escalateContext, escalateReason);
+}
+
+// Sent when the assistant can't produce a reply at all (every AI model down,
+// key revoked, a crash mid-turn). Fixed text, no AI involved — the one thing
+// that must work when everything else is failing. Kept neutral and short so
+// it reads fine whatever language the customer wrote in.
+const HOLDING_REPLY = "Thanks for your message! 🙏 I'm having a little trouble replying right now — someone from our team will get back to you shortly.";
+
+/**
+ * The customer always hears back, the chat is flagged for a human in the
+ * dashboard, and the business is pinged through the normal escalation
+ * path. Any booking tool that ran before the failure is called out, since
+ * the customer may not have been told it went through.
+ */
+async function sendHoldingReplyAndEscalate(input: {
+  tenantId: string;
+  from: string;
+  waPhoneNumberId: string;
+  conversationId: string;
+  combinedText: string;
+  toolCalls: LoggedToolCall[];
+}): Promise<void> {
+  const { tenantId, from, waPhoneNumberId, conversationId, combinedText, toolCalls } = input;
+  await sendTextMessage(waPhoneNumberId, from, HOLDING_REPLY);
+  await connection.del(bufferKey(from));
+  await withTenant(tenantId, async (client) => {
+    await insertMessage(client, tenantId, conversationId, "out", HOLDING_REPLY, undefined, toolCalls.length ? toolCalls : undefined);
+    await touchConversation(client, conversationId);
+    await setConversationStatus(client, conversationId, "needs_human");
+  });
+  const actions = toolCalls.map((t) => t.name).join(", ");
+  await notifyEscalation(
+    waPhoneNumberId,
+    from,
+    combinedText,
+    actions
+      ? `assistant failed mid-reply after running: ${actions} — check Bookings and confirm with the customer`
+      : "assistant couldn't reply (AI service problem) — please reply to the customer",
+  );
 }
 
 /** Per-contact rate limit — a generic guard against reply loops/spam bursts, regardless of cause. */
@@ -376,8 +419,20 @@ const replyWorker = new Worker<ReplyDebounceJob>(
 
     // Embed the combined buffered text (better intent signal than any single
     // fragment) for RAG lookup — no DB connection held during this network call.
-    const queryEmbedding = await embedText(combinedText);
-    const knowledge = await withTenant(tenantId, (client) => searchKnowledge(client, queryEmbedding, RAG_TOP_K));
+    // If embedding fails, answer without the FAQ lookup rather than not at
+    // all — the always-on business info (hours, prices, policies) is still in
+    // the prompt, which covers most questions. There's no fallback embedding
+    // model to switch to (see config.gemini.embeddingModel).
+    let knowledge: { content: string }[] = [];
+    try {
+      const queryEmbedding = await embedText(combinedText);
+      knowledge = await withTenant(tenantId, (client) => searchKnowledge(client, queryEmbedding, RAG_TOP_K));
+    } catch (err) {
+      console.warn(`[worker] FAQ lookup failed for ${from}, replying without it:`, err);
+      if (err instanceof GeminiError && (err.kind === "auth" || err.kind === "billing" || err.kind === "model_not_found" || err.kind === "quota_exhausted")) {
+        await alertOperator(`embed:${err.kind}`, `FAQ search is down (${err.message}). Replies still go out, but without FAQ answers.`);
+      }
+    }
     const systemPrompt = buildSystemPrompt(
       tenant.businessName,
       tenant.businessDescription,
@@ -407,7 +462,27 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       }
       return Promise.resolve({ error: `Unknown tool "${call.name}"` });
     };
-    const result = await runReplyTurn(systemPrompt, chatHistory, actionTools, executeTool);
+    let result: Awaited<ReturnType<typeof runReplyTurn>>;
+    try {
+      result = await runReplyTurn(systemPrompt, chatHistory, actionTools, executeTool);
+    } catch (err) {
+      const toolCalls = err instanceof ReplyTurnFailedError ? err.toolCalls : [];
+      const cause = err instanceof ReplyTurnFailedError ? err.cause : err;
+      // Let the queue retry the whole job (a few seconds later, with backoff)
+      // only while that's both SAFE — nothing with side effects ran yet, so
+      // a rerun can't double-book — and USEFUL — the failure is the kind
+      // that clears up (overload, rate limit), not a dead key. On the last
+      // attempt, or when retrying can't help, the customer gets a holding
+      // reply and the chat goes to a human instead of silence.
+      const attemptsLeft = (job.opts.attempts ?? 1) - job.attemptsMade - 1;
+      if (toolCalls.length === 0 && isTransientFailure(cause) && attemptsLeft > 0) {
+        console.warn(`[worker] reply for ${from} failed, ${attemptsLeft} retr${attemptsLeft === 1 ? "y" : "ies"} left:`, cause);
+        throw err;
+      }
+      console.error(`[worker] reply for ${from} failed for good — sending holding reply and handing to a human:`, cause);
+      await sendHoldingReplyAndEscalate({ tenantId, from, waPhoneNumberId, conversationId, combinedText, toolCalls });
+      return;
+    }
 
     // Deliberately NOT persisted yet — see below. If sendTextMessage throws
     // (e.g. WhatsApp/Meta-side rejection), a message recorded here would

@@ -1,6 +1,15 @@
 import { config } from "./config.js";
+import { GeminiError, classifyFetchError, classifyHttpError, withModelFallback } from "./llmFallback.js";
 
 const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
+
+// Per-call deadlines. Without one, a model that's technically up but crawling
+// holds the reply hostage — probed 2026-10-16, gemini-3.8-flash took 169s to
+// answer a one-line question. Media gets longer: a PDF or audio upload is
+// genuinely more work.
+const REPLY_TIMEOUT_MS = 25_000;
+const MEDIA_TIMEOUT_MS = 45_000;
+const EMBED_TIMEOUT_MS = 10_000;
 
 export interface ChatTurn {
   role: "user" | "model";
@@ -82,6 +91,67 @@ interface GeminiContent {
   parts: GeminiPart[];
 }
 
+interface GenerateResponse {
+  candidates?: { content?: { parts?: GeminiPart[] }; finishReason?: string }[];
+  promptFeedback?: { blockReason?: string };
+}
+
+/**
+ * One generateContent call to one model, with every failure turned into a
+ * typed GeminiError (lib/llmFallback.ts) — that's what lets the fallback
+ * chain decide whether another model, a later retry, or a human is the fix.
+ */
+async function generate(model: string, body: unknown, timeoutMs: number): Promise<GenerateResponse> {
+  let res: Response;
+  try {
+    res = await fetch(`${GEMINI_API_BASE}/models/${model}:generateContent?key=${config.gemini.apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
+    });
+  } catch (err) {
+    throw classifyFetchError(model, err);
+  }
+  if (!res.ok) throw classifyHttpError(model, res.status, await res.text());
+  try {
+    return (await res.json()) as GenerateResponse;
+  } catch (err) {
+    // The deadline can also fire while the body is still streaming in.
+    throw classifyFetchError(model, err);
+  }
+}
+
+/** A 200 that still has nothing usable in it: blocked prompt, safety stop, cut off mid-answer. */
+function unusable(model: string, data: GenerateResponse, what: string): GeminiError {
+  const block = data.promptFeedback?.blockReason;
+  const finish = data.candidates?.[0]?.finishReason;
+  return new GeminiError("bad_output", model, `${what}${block ? ` (prompt blocked: ${block})` : ""}${finish ? ` (finishReason: ${finish})` : ""}`);
+}
+
+/** Joined text of the first candidate, or a bad_output error if there isn't any. */
+function textOf(model: string, data: GenerateResponse, what: string): string {
+  const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() ?? "";
+  if (!text) throw unusable(model, data, `${what} returned no text`);
+  return text;
+}
+
+/**
+ * runReplyTurn failed partway — carries the tool calls that DID run before
+ * the failure, because those may have had real side effects (a booking on
+ * the calendar). The worker must not blindly retry the whole turn then, or
+ * it could book twice.
+ */
+export class ReplyTurnFailedError extends Error {
+  constructor(
+    public cause: unknown,
+    public toolCalls: LoggedToolCall[],
+  ) {
+    super(`Reply turn failed after ${toolCalls.length} tool call(s): ${cause instanceof Error ? cause.message : String(cause)}`);
+    this.name = "ReplyTurnFailedError";
+  }
+}
+
 /**
  * Runs one full reply turn: the model may call zero or more `actionTools`
  * (each executed via `executeTool`) before finishing with the mandatory
@@ -89,6 +159,9 @@ interface GeminiContent {
  * services configured, which makes this behave exactly like the old
  * structured-output-only `generateReply` — the model just calls
  * respond_to_customer immediately.
+ *
+ * Throws ReplyTurnFailedError (never a bare error) so the caller always
+ * knows which tools already ran.
  */
 export async function runReplyTurn(
   systemPrompt: string,
@@ -100,48 +173,52 @@ export async function runReplyTurn(
   const tools = [{ functionDeclarations: [...actionTools, RESPOND_TOOL] }];
   const toolCalls: LoggedToolCall[] = [];
 
-  for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-    const url = `${GEMINI_API_BASE}/models/${config.gemini.model}:generateContent?key=${config.gemini.apiKey}`;
-    const res = await fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        systemInstruction: { parts: [{ text: systemPrompt }] },
-        contents,
-        tools,
-        // "ANY" forces a function call every turn (never plain text) — the
-        // model's only way to actually reply is respond_to_customer, so we
-        // never have to fall back to sniffing free text for an answer.
-        toolConfig: { functionCallingConfig: { mode: "ANY" } },
-      }),
-    });
-    if (!res.ok) throw new Error(`Gemini generateContent failed (${res.status}): ${await res.text()}`);
+  try {
+    for (let iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+      // Each step of the loop can land on a different model if one fails
+      // mid-turn — `contents` (including tool results already obtained) is
+      // carried over as-is, so nothing that already ran is re-executed.
+      const { parts, call } = await withModelFallback(config.gemini.replyModels, "reply", async (model) => {
+        const data = await generate(
+          model,
+          {
+            systemInstruction: { parts: [{ text: systemPrompt }] },
+            contents,
+            tools,
+            // "ANY" forces a function call every turn (never plain text) — the
+            // model's only way to actually reply is respond_to_customer, so we
+            // never have to fall back to sniffing free text for an answer.
+            toolConfig: { functionCallingConfig: { mode: "ANY" } },
+          },
+          REPLY_TIMEOUT_MS,
+        );
+        const parts = data.candidates?.[0]?.content?.parts ?? [];
+        const call = parts.find((p) => !!p.functionCall)?.functionCall;
+        if (!call) throw unusable(model, data, "no function call despite toolConfig mode ANY");
+        if (call.name === "respond_to_customer" && typeof call.args.reply !== "string") {
+          throw unusable(model, data, `respond_to_customer missing "reply": ${JSON.stringify(call.args)}`);
+        }
+        return { parts, call };
+      });
 
-    const data = (await res.json()) as { candidates?: { content?: { parts?: GeminiPart[] } }[] };
-    const parts = data.candidates?.[0]?.content?.parts ?? [];
-    const callPart = parts.find((p) => !!p.functionCall);
-    if (!callPart) {
-      throw new Error(`Gemini returned no function call despite toolConfig mode ANY: ${JSON.stringify(data)}`);
-    }
-    const call = callPart.functionCall!;
-    // Push the model's turn back verbatim (not just a reconstructed
-    // {functionCall} part) — parts can carry a `thoughtSignature` field the
-    // API requires to be echoed back on the next turn for multi-step tool
-    // calling ("Function call is missing a thought_signature..."); dropping
-    // it (as an earlier version of this code did) breaks the very next call.
-    contents.push({ role: "model", parts });
+      // Push the model's turn back verbatim (not just a reconstructed
+      // {functionCall} part) — parts can carry a `thoughtSignature` field the
+      // API requires to be echoed back on the next turn for multi-step tool
+      // calling ("Function call is missing a thought_signature..."); dropping
+      // it (as an earlier version of this code did) breaks the very next call.
+      contents.push({ role: "model", parts });
 
-    if (call.name === "respond_to_customer") {
-      const args = call.args as { reply?: string; escalate?: boolean; escalate_reason?: string };
-      if (typeof args.reply !== "string") {
-        throw new Error(`respond_to_customer missing "reply": ${JSON.stringify(call.args)}`);
+      if (call.name === "respond_to_customer") {
+        const args = call.args as { reply: string; escalate?: boolean; escalate_reason?: string };
+        return { reply: args.reply, escalate: args.escalate === true, escalateReason: args.escalate_reason, toolCalls };
       }
-      return { reply: args.reply, escalate: args.escalate === true, escalateReason: args.escalate_reason, toolCalls };
-    }
 
-    const result = await executeTool(call);
-    toolCalls.push({ name: call.name, args: call.args, result });
-    contents.push({ role: "user", parts: [{ functionResponse: { name: call.name, response: { result } } }] });
+      const result = await executeTool(call);
+      toolCalls.push({ name: call.name, args: call.args, result });
+      contents.push({ role: "user", parts: [{ functionResponse: { name: call.name, response: { result } } }] });
+    }
+  } catch (err) {
+    throw new ReplyTurnFailedError(err, toolCalls);
   }
 
   // Iteration budget exhausted without a respond_to_customer call — don't
@@ -178,50 +255,27 @@ Rules:
 - Skip routine scheduling logistics already tracked elsewhere (specific appointment times are stored as real bookings, not memory).
 - Output plain notes only — no preamble, no headings, no commentary about the task.`;
 
-  const url = `${GEMINI_API_BASE}/models/${config.gemini.model}:generateContent?key=${config.gemini.apiKey}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: prompt }] }] }),
-  });
-  if (!res.ok) throw new Error(`Gemini summarizeConversation failed (${res.status}): ${await res.text()}`);
-
-  const data = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-  const text = data.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() ?? "";
-  if (!text) throw new Error(`Gemini summarizeConversation returned no text: ${JSON.stringify(data)}`);
-  return text;
+  return withModelFallback(config.gemini.replyModels, "summary", async (model) =>
+    textOf(model, await generate(model, { contents: [{ role: "user", parts: [{ text: prompt }] }] }, REPLY_TIMEOUT_MS), "summary"),
+  );
 }
 
 /** Basic voice-note handling: transcribe, then feed the transcript through the normal text pipeline. */
 export async function transcribeAudio(audioData: Buffer, mimeType: string): Promise<string> {
-  const url = `${GEMINI_API_BASE}/models/${config.gemini.transcriptionModel}:generateContent?key=${config.gemini.apiKey}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: "Transcribe this audio message verbatim. Reply with ONLY the transcript, no commentary." },
-            { inlineData: { mimeType, data: audioData.toString("base64") } },
-          ],
-        },
-      ],
-    }),
-  });
-  if (!res.ok) {
-    const errBody = await res.text();
-    throw new Error(`Gemini audio transcription failed (${res.status}): ${errBody}`);
-  }
-  const responseData = (await res.json()) as {
-    candidates?: { content?: { parts?: { text?: string }[] } }[];
+  const body = {
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { text: "Transcribe this audio message verbatim. Reply with ONLY the transcript, no commentary." },
+          { inlineData: { mimeType, data: audioData.toString("base64") } },
+        ],
+      },
+    ],
   };
-  const text = responseData.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() ?? "";
-  if (!text) {
-    throw new Error(`Gemini transcription returned no text: ${JSON.stringify(responseData)}`);
-  }
-  return text;
+  return withModelFallback(config.gemini.mediaModels, "transcription", async (model) =>
+    textOf(model, await generate(model, body, MEDIA_TIMEOUT_MS), "transcription"),
+  );
 }
 
 /**
@@ -260,46 +314,41 @@ export async function describeMedia(data: Buffer, mimeType: string, filename?: s
 - Only what's actually in the document. Never infer or fill in gaps.
 - No preamble. Keep it under 200 words.`;
 
-  const url = `${GEMINI_API_BASE}/models/${config.gemini.transcriptionModel}:generateContent?key=${config.gemini.apiKey}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      contents: [
-        {
-          role: "user",
-          parts: [
-            { text: filename ? `${instruction}\n\nThe file is named "${filename}".` : instruction },
-            { inlineData: { mimeType, data: data.toString("base64") } },
-          ],
-        },
-      ],
-    }),
-  });
-  if (!res.ok) throw new Error(`Gemini media description failed (${res.status}): ${await res.text()}`);
-
-  const responseData = (await res.json()) as { candidates?: { content?: { parts?: { text?: string }[] } }[] };
-  const text = responseData.candidates?.[0]?.content?.parts?.map((p) => p.text ?? "").join("").trim() ?? "";
-  if (!text) throw new Error(`Gemini media description returned no text: ${JSON.stringify(responseData)}`);
-  return text;
+  const body = {
+    contents: [
+      {
+        role: "user",
+        parts: [
+          { text: filename ? `${instruction}\n\nThe file is named "${filename}".` : instruction },
+          { inlineData: { mimeType, data: data.toString("base64") } },
+        ],
+      },
+    ],
+  };
+  return withModelFallback(config.gemini.mediaModels, "media description", async (model) =>
+    textOf(model, await generate(model, body, MEDIA_TIMEOUT_MS), "media description"),
+  );
 }
 
 export async function embedText(text: string): Promise<number[]> {
-  const url = `${GEMINI_API_BASE}/models/${config.gemini.embeddingModel}:embedContent?key=${config.gemini.apiKey}`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    // Pinned to 768 dims to match the knowledge_chunks.embedding column (vector(768)).
-    body: JSON.stringify({ content: { parts: [{ text }] }, outputDimensionality: 768 }),
-  });
-  if (!res.ok) {
-    const errBody = await res.text();
-    throw new Error(`Gemini embedContent failed (${res.status}): ${errBody}`);
+  // Single model on purpose — see config.gemini.embeddingModel. Still typed,
+  // so a key/billing problem surfaces the same way as for replies.
+  const model = config.gemini.embeddingModel;
+  let res: Response;
+  try {
+    res = await fetch(`${GEMINI_API_BASE}/models/${model}:embedContent?key=${config.gemini.apiKey}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // Pinned to 768 dims to match the knowledge_chunks.embedding column (vector(768)).
+      body: JSON.stringify({ content: { parts: [{ text }] }, outputDimensionality: 768 }),
+      signal: AbortSignal.timeout(EMBED_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw classifyFetchError(model, err);
   }
+  if (!res.ok) throw classifyHttpError(model, res.status, await res.text());
   const data = (await res.json()) as { embedding?: { values?: number[] } };
   const values = data.embedding?.values;
-  if (!Array.isArray(values)) {
-    throw new Error(`Gemini embedding response missing values: ${JSON.stringify(data)}`);
-  }
+  if (!Array.isArray(values)) throw new GeminiError("bad_output", model, `embedding response missing values: ${JSON.stringify(data).slice(0, 300)}`);
   return values;
 }

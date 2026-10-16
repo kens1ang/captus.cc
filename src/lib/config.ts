@@ -8,6 +8,13 @@ function required(name: string): string {
   return value;
 }
 
+/** `GEMINI_MODELS=a,b,c` wins; else a legacy single-model var goes first, ahead of the defaults (deduped). */
+function modelChain(list: string | undefined, legacySingle: string | undefined, defaults: string[]): string[] {
+  const fromList = list?.split(",").map((m) => m.trim()).filter(Boolean);
+  if (fromList?.length) return fromList;
+  return [...new Set([legacySingle?.trim(), ...defaults].filter((m): m is string => !!m))];
+}
+
 // Local dev default for the restricted app role migrate.ts creates — override
 // via APP_DB_PASSWORD if this DB is ever reachable from outside your machine.
 const appDbPassword = process.env.APP_DB_PASSWORD || "captus_app_dev";
@@ -47,13 +54,36 @@ export const config = {
     get apiKey() {
       return required("GEMINI_API_KEY");
     },
-    // Overridable in case a model name gets deprecated/renamed.
-    model: process.env.GEMINI_MODEL ?? "gemini-3.5-flash-lite",
+    // Fallback chains, tried in order (lib/llmFallback.ts) — a model that's
+    // overloaded, rate-limited, out of quota or retired is skipped for a
+    // while and the next one answers instead. Comma-separated env override.
+    // Only stable models: previews get lower limits and vanish without
+    // notice (2.5 Flash went 404 "no longer available to new users" with no
+    // warning). Probed 2026-10-16: 3.5 Flash-Lite ~1.2s, 3.5 Flash ~2.6s;
+    // 3.8 Flash answered correctly but took 169s, so it's not in here.
+    // GEMINI_MODEL / GEMINI_TRANSCRIBE_MODEL (the old single-model vars)
+    // still work and just become the head of the chain.
+    replyModels: modelChain(process.env.GEMINI_MODELS, process.env.GEMINI_MODEL, [
+      "gemini-3.5-flash-lite",
+      "gemini-3.5-flash",
+      "gemini-3.1-flash-lite",
+    ]),
+    // Voice notes, photos, documents.
+    mediaModels: modelChain(process.env.GEMINI_MEDIA_MODELS, process.env.GEMINI_TRANSCRIBE_MODEL, [
+      "gemini-3.5-flash-lite",
+      "gemini-3.5-flash",
+      "gemini-3.1-flash-lite",
+    ]),
+    // Deliberately a single model with no fallback: vectors from different
+    // embedding models aren't comparable, so silently switching would break
+    // search against everything already stored. On failure, replies skip the
+    // FAQ lookup instead (worker.ts).
     embeddingModel: process.env.GEMINI_EMBEDDING_MODEL ?? "gemini-embedding-001",
-    // Voice notes: a lite text model may not support audio input, so this is
-    // independently overridable from the main chat model.
-    transcriptionModel: process.env.GEMINI_TRANSCRIBE_MODEL ?? "gemini-3.5-flash-lite",
   },
+  // Where operator alerts go (Gemini key/billing/quota problems, every model
+  // failing) — these are YOUR problems as the operator, not the business
+  // owner's. Sent to OWNER_NOTIFY_NUMBER from this WhatsApp number.
+  opsAlertPhoneNumberId: process.env.OPS_ALERT_PHONE_NUMBER_ID || process.env.WHATSAPP_PHONE_NUMBER_ID || undefined,
   // Stage 4: dashboard auth (Clerk) — secretKey verifies session tokens sent
   // by the Next.js dashboard; dashboardOrigin is the CORS allowlist entry.
   clerk: {
