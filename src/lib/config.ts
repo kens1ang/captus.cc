@@ -49,6 +49,8 @@ export const config = {
     get appSecret() {
       return required("WHATSAPP_APP_SECRET");
     },
+    // Only the e2e harness overrides this (to a local mock of Meta's API).
+    graphBase: process.env.WHATSAPP_GRAPH_BASE || "https://graph.facebook.com",
   },
   gemini: {
     get apiKey() {

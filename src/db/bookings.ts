@@ -22,8 +22,9 @@ interface BookingRow {
   service_name: string | null;
   contact_wa_number: string;
   contact_name: string | null;
-  starts_at: string;
-  ends_at: string;
+  // node-postgres parses timestamptz into a JS Date, not a string.
+  starts_at: Date;
+  ends_at: Date;
   status: BookingStatus;
   google_event_id: string | null;
 }
@@ -43,8 +44,14 @@ function toBooking(row: BookingRow): Booking {
     serviceName: row.service_name,
     contactWaNumber: row.contact_wa_number,
     contactName: row.contact_name,
-    startsAt: row.starts_at,
-    endsAt: row.ends_at,
+    // Normalized to ISO strings here, once: everything downstream parses
+    // these with luxon's DateTime.fromISO, which turns a Date object into
+    // "Invalid DateTime" without throwing. Passing the raw Date through
+    // made every overlap check quietly false, so existing bookings never
+    // blocked a slot (double-booking, capacity ignored) — found by the e2e
+    // harness. The type said string all along; it never was.
+    startsAt: row.starts_at.toISOString(),
+    endsAt: row.ends_at.toISOString(),
     status: row.status,
     googleEventId: row.google_event_id,
   };

@@ -2,6 +2,9 @@ import crypto from "node:crypto";
 import { config } from "./config.js";
 
 const GRAPH_API_VERSION = "v21.0";
+// Overridable only so the e2e harness (e2e/) can point every Meta call at a
+// local mock — production never sets WHATSAPP_GRAPH_BASE.
+const GRAPH = `${config.whatsapp.graphBase}/${GRAPH_API_VERSION}`;
 
 export function verifyWebhookSignature(rawBody: Buffer, signatureHeader: string | undefined): boolean {
   if (!signatureHeader?.startsWith("sha256=")) return false;
@@ -18,7 +21,7 @@ export function verifyWebhookSignature(rawBody: Buffer, signatureHeader: string 
 }
 
 export async function sendTextMessage(phoneNumberId: string, to: string, body: string): Promise<void> {
-  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`;
+  const url = `${GRAPH}/${phoneNumberId}/messages`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -45,7 +48,7 @@ export async function sendTextMessage(phoneNumberId: string, to: string, body: s
  * it must be reachable over plain HTTPS with no auth (routes/files.ts).
  */
 export async function sendDocumentMessage(phoneNumberId: string, to: string, link: string, filename: string, caption?: string): Promise<void> {
-  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`;
+  const url = `${GRAPH}/${phoneNumberId}/messages`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -80,7 +83,7 @@ export async function sendTemplateMessage(
   languageCode: string,
   bodyParams: string[],
 ): Promise<void> {
-  const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`;
+  const url = `${GRAPH}/${phoneNumberId}/messages`;
   const res = await fetch(url, {
     method: "POST",
     headers: {
@@ -107,7 +110,7 @@ export async function sendTemplateMessage(
 
 /** Downloads a media attachment (voice note, image, etc.) by its WhatsApp media id. */
 export async function downloadMedia(mediaId: string): Promise<{ data: Buffer; mimeType: string }> {
-  const metaRes = await fetch(`https://graph.facebook.com/${GRAPH_API_VERSION}/${mediaId}`, {
+  const metaRes = await fetch(`${GRAPH}/${mediaId}`, {
     headers: { Authorization: `Bearer ${config.whatsapp.accessToken}` },
   });
   if (!metaRes.ok) {
@@ -135,7 +138,7 @@ export async function downloadMedia(mediaId: string): Promise<{ data: Buffer; mi
  */
 export async function sendTypingIndicator(phoneNumberId: string, replyToMessageId: string): Promise<void> {
   try {
-    const url = `https://graph.facebook.com/${GRAPH_API_VERSION}/${phoneNumberId}/messages`;
+    const url = `${GRAPH}/${phoneNumberId}/messages`;
     const res = await fetch(url, {
       method: "POST",
       headers: {

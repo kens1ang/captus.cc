@@ -42,6 +42,11 @@ export function buildBookingTools(services: Service[]): ToolDeclaration[] {
             description:
               "The specific date the customer wants, as YYYY-MM-DD in the business's own timezone — resolve relative wording ('tomorrow', 'next Tuesday') yourself using the current date/time given in your instructions. Omit only if the customer hasn't indicated any particular day, in which case you'll get the soonest few openings regardless of date.",
           },
+          time: {
+            type: "STRING",
+            description:
+              "The time of day the customer wants, as HH:MM in 24-hour time (3pm → 15:00). Rough wording works too: morning → 10:00, lunch → 12:30, afternoon → 15:00, evening → 19:00. ALWAYS pass this whenever the customer mentions any time — without it you only get the earliest openings of the day, and could wrongly tell them their time is taken.",
+          },
         },
         required: ["service_name"],
       },
@@ -166,11 +171,15 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
     if (!service) return { error: `Unknown service "${serviceName}". Valid services: ${ctx.services.map((s) => s.name).join(", ")}` };
 
     const date = call.args.date as string | undefined;
-    const slots = await withTenant(ctx.tenantId, (client) => computeAvailableSlots(client, ctx.tenantId, ctx.timezone, service.durationMinutes, service.capacity, date));
+    const time = call.args.time as string | undefined;
+    const slots = await withTenant(ctx.tenantId, (client) =>
+      computeAvailableSlots(client, ctx.tenantId, ctx.timezone, service.durationMinutes, service.capacity, date, time),
+    );
     return {
       service: service.name,
       duration_minutes: service.durationMinutes,
       searched_date: date ?? null,
+      searched_time: time ?? null,
       // Both a machine-usable ISO value (to echo back in book_appointment) and
       // a human label in the tenant's own timezone, so the model doesn't have
       // to do its own timezone math when describing options to the customer.

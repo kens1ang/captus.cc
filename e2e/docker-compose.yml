@@ -1,0 +1,25 @@
+# Throwaway stack for the e2e harness: own project name, own ports, own
+# volume (removed with `down -v` at the start and end of every run), so it
+# never touches the dev stack in ../docker-compose.yml. A volume rather than
+# tmpfs so the outage scenarios can stop/start Postgres without wiping it.
+name: captus-e2e
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_USER: captus
+      POSTGRES_PASSWORD: captus
+      POSTGRES_DB: captus
+    ports:
+      - "5433:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6380:6379"
+
+volumes:
+  pgdata:

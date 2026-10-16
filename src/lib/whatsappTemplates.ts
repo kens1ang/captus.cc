@@ -8,7 +8,7 @@ import { config } from "./config.js";
 // Meta's review automatically — there's no separate "submit" call.
 
 const GRAPH_API_VERSION = "v21.0";
-const GRAPH = `https://graph.facebook.com/${GRAPH_API_VERSION}`;
+const GRAPH = `${config.whatsapp.graphBase}/${GRAPH_API_VERSION}`;
 
 export type TemplateCategory = "MARKETING" | "UTILITY" | "AUTHENTICATION";
 export type TemplateStatus = "APPROVED" | "PENDING" | "REJECTED" | "PAUSED" | "DISABLED" | "IN_APPEAL" | "PENDING_DELETION" | "DELETED" | "LIMIT_EXCEEDED";

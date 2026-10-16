@@ -58,6 +58,13 @@ function peakConcurrent(slotStart: DateTime, slotEnd: DateTime, bookings: { star
  * tomorrow) — confirmed live: exactly this happened before this was added.
  * If the preferred day itself has nothing open, the search still continues
  * into later days as a fallback, same as with no preference at all.
+ *
+ * `preferredTime` (HH:mm, tenant-local) does the same for the time of day:
+ * the slots returned for the preferred day are the ones CLOSEST to it, not
+ * the first few from opening. Without it, "tomorrow at 3pm" at a place
+ * opening 8am only ever saw 8:00–11:30 (the first 8), so the assistant told
+ * the customer 3pm was taken when it was wide open — found by the e2e
+ * harness.
  */
 export async function computeAvailableSlots(
   client: PoolClient,
@@ -66,6 +73,7 @@ export async function computeAvailableSlots(
   durationMinutes: number,
   capacity: number,
   preferredDate?: string,
+  preferredTime?: string,
 ): Promise<AvailableSlot[]> {
   const hours = await listBusinessHours(client);
   if (hours.length === 0) return [];
@@ -84,29 +92,43 @@ export async function computeAvailableSlots(
 
   const preferred = preferredDate ? DateTime.fromISO(preferredDate, { zone: timezone }) : null;
   const startDayOffset = preferred?.isValid ? Math.max(0, Math.floor(preferred.startOf("day").diff(now.startOf("day"), "days").days)) : 0;
+  const timeMatch = preferredTime?.match(/^(\d{1,2}):(\d{2})$/);
 
-  for (let dayOffset = startDayOffset; dayOffset < SEARCH_DAYS_AHEAD && slots.length < MAX_SLOTS_RETURNED; dayOffset++) {
+  /** Every open slot on one day, in order. */
+  function openSlotsOn(dayOffset: number): DateTime[] {
     const day = now.plus({ days: dayOffset }).startOf("day");
     const dayOfWeek = day.weekday % 7; // luxon: 1=Mon..7=Sun -> 0=Sun..6=Sat, matching schema
-    const dayIntervals = hours.filter((h) => h.dayOfWeek === dayOfWeek);
-
-    for (const interval of dayIntervals) {
+    const open: DateTime[] = [];
+    for (const interval of hours.filter((h) => h.dayOfWeek === dayOfWeek)) {
       const [startH, startM] = interval.startTime.split(":").map(Number);
       const [endH, endM] = interval.endTime.split(":").map(Number);
       const intervalStart = day.set({ hour: startH, minute: startM });
       const intervalEnd = day.set({ hour: endH, minute: endM });
 
       for (let slotStart = intervalStart; slotStart.plus({ minutes: durationMinutes }) <= intervalEnd; slotStart = slotStart.plus({ minutes: SLOT_GRID_MINUTES })) {
-        if (slots.length >= MAX_SLOTS_RETURNED) break;
         if (slotStart < earliestStart) continue;
-
         const slotEnd = slotStart.plus({ minutes: durationMinutes });
         const clashesLocally = peakConcurrent(slotStart, slotEnd, localBookings) >= capacity;
         const clashesOnCalendar = busyBlocks.some((b) => overlaps(slotStart, slotEnd, b.start, b.end));
-        if (clashesLocally || clashesOnCalendar) continue;
-
-        slots.push({ startISO: slotStart.toISO()!, endISO: slotEnd.toISO()! });
+        if (!clashesLocally && !clashesOnCalendar) open.push(slotStart);
       }
+    }
+    return open;
+  }
+
+  for (let dayOffset = startDayOffset; dayOffset < SEARCH_DAYS_AHEAD && slots.length < MAX_SLOTS_RETURNED; dayOffset++) {
+    let open = openSlotsOn(dayOffset);
+    if (timeMatch && dayOffset === startDayOffset && open.length) {
+      // The ones nearest the requested time, then back in time order.
+      const target = open[0].set({ hour: Number(timeMatch[1]), minute: Number(timeMatch[2]) });
+      open = [...open]
+        .sort((a, b) => Math.abs(a.diff(target).toMillis()) - Math.abs(b.diff(target).toMillis()))
+        .slice(0, MAX_SLOTS_RETURNED)
+        .sort((a, b) => a.toMillis() - b.toMillis());
+    }
+    for (const slotStart of open) {
+      if (slots.length >= MAX_SLOTS_RETURNED) break;
+      slots.push({ startISO: slotStart.toISO()!, endISO: slotStart.plus({ minutes: durationMinutes }).toISO()! });
     }
   }
 

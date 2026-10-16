@@ -53,7 +53,7 @@ import {
 } from "./lib/businessInfo.js";
 import { getBookingById, markReminderSent } from "./db/bookings.js";
 import { withTenant } from "./db/tenantContext.js";
-import { getTenantById } from "./db/tenants.js";
+import { getTenantById, getTenantByPhoneNumberId } from "./db/tenants.js";
 import { notifyEscalation } from "./lib/escalation.js";
 import { config } from "./lib/config.js";
 
@@ -63,6 +63,8 @@ import { config } from "./lib/config.js";
 // coherence shouldn't depend on a summary of something said three minutes ago.
 const HISTORY_LIMIT = MEMORY_KEEP_RECENT;
 const RAG_TOP_K = 4;
+const INBOUND_CONCURRENCY = 10;
+const REPLY_CONCURRENCY = 8;
 
 function bufferKey(from: string): string {
   return `msgbuffer:${from}`;
@@ -207,7 +209,16 @@ async function scheduleDebouncedReply(tenantId: string, from: string, waPhoneNum
 const inboundWorker = new Worker<InboundMessageJob>(
   INBOUND_MESSAGE_QUEUE,
   async (job) => {
-    const { tenantId, from, messageId, waPhoneNumberId, kind } = job.data;
+    const { from, messageId, waPhoneNumberId, kind } = job.data;
+
+    // Stage 3: one webhook endpoint serves every tenant, routed by which
+    // WhatsApp number the message arrived on.
+    const tenant = await getTenantByPhoneNumberId(waPhoneNumberId);
+    if (!tenant) {
+      console.warn(`[worker] no tenant configured for WhatsApp number ${waPhoneNumberId} — dropping message ${messageId}`);
+      return;
+    }
+    const tenantId = tenant.id;
 
     if (await isRateLimited(from)) {
       console.warn(`[worker] rate limit exceeded for ${from} (msg ${messageId}) — dropping to avoid a reply loop/spam burst`);
@@ -334,7 +345,10 @@ const inboundWorker = new Worker<InboundMessageJob>(
 
     await scheduleDebouncedReply(tenantId, from, waPhoneNumberId);
   },
-  { connection },
+  // Parallel across customers. BullMQ's default is ONE job at a time, which
+  // made the 50th of 50 simultaneous customers wait ~2 minutes behind the
+  // other 49 (e2e load test). Safe: each job is one customer's own message.
+  { connection, concurrency: INBOUND_CONCURRENCY },
 );
 
 // --- Worker 2: fires once the debounce window passes with no new message —
@@ -553,7 +567,10 @@ const replyWorker = new Worker<ReplyDebounceJob>(
       await notifyEscalation(waPhoneNumberId, from, combinedText, result.escalateReason);
     }
   },
-  { connection },
+  // Parallel across customers — the reply job is keyed per customer, so two
+  // replies to the same customer never run at once. Kept under the DB pool
+  // size (10): each reply holds a connection only between AI calls.
+  { connection, concurrency: REPLY_CONCURRENCY },
 );
 
 // --- Worker 3: fires once per booking, LEAD_TIME_HOURS before its start
@@ -610,7 +627,7 @@ const reminderWorker = new Worker<ReminderJob>(
       });
     }
   },
-  { connection },
+  { connection, concurrency: 5 },
 );
 
 for (const w of [inboundWorker, replyWorker, reminderWorker]) {

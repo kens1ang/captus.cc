@@ -11,7 +11,8 @@ export const connection = new Redis(config.redisUrl, {
 export const INBOUND_MESSAGE_QUEUE = "inbound-messages";
 
 export interface InboundMessageJob {
-  tenantId: string;
+  // Resolved from waPhoneNumberId by the worker, not the webhook — see
+  // routes/webhook.ts for why the webhook mustn't touch the database.
   waPhoneNumberId: string;
   from: string;
   messageId: string;
@@ -29,7 +30,11 @@ export interface InboundMessageJob {
 export const inboundQueue = new Queue<InboundMessageJob>(INBOUND_MESSAGE_QUEUE, {
   connection,
   defaultJobOptions: {
-    attempts: 3,
+    // Once Meta has its 200, this job IS the only copy of the message, so it
+    // gets a long runway: 2s, 4s, 8s … ≈ 4 minutes in total, enough to ride
+    // out a database restart or a Neon cold start. Safe to retry: recording
+    // the message is idempotent on its WhatsApp id.
+    attempts: 8,
     backoff: { type: "exponential", delay: 2000 },
     removeOnComplete: 1000,
     removeOnFail: 1000,

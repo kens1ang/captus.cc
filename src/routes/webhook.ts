@@ -2,7 +2,6 @@ import type { FastifyInstance } from "fastify";
 import { config } from "../lib/config.js";
 import { verifyWebhookSignature } from "../lib/whatsapp.js";
 import { inboundQueue } from "../lib/queue.js";
-import { getTenantByPhoneNumberId } from "../db/tenants.js";
 
 interface MetaWebhookBody {
   entry?: Array<{
@@ -67,14 +66,12 @@ export async function webhookRoutes(app: FastifyInstance) {
       return;
     }
 
-    // Stage 3: one webhook endpoint serves every tenant, routed by which
-    // WhatsApp number the message arrived on.
-    const tenant = await getTenantByPhoneNumberId(phoneNumberId);
-    if (!tenant) {
-      req.log.warn({ phoneNumberId }, "No tenant configured for this WhatsApp number — skipping");
-      return;
-    }
-
+    // Deliberately NO database access from here on. Meta already has its
+    // 200 (above), so it won't redeliver: if anything between here and the
+    // enqueue throws, the message is gone for good. Looking the tenant up
+    // here used to do exactly that whenever Postgres was briefly unreachable
+    // (found by the e2e harness). The worker resolves the tenant instead,
+    // where a failure is retried.
     for (const message of messages) {
       // Defensive: never let the bot reply to an echo of its own outbound
       // number, or to a payload shaped like a group/broadcast (WhatsApp
@@ -91,7 +88,6 @@ export async function webhookRoutes(app: FastifyInstance) {
       }
 
       const base = {
-        tenantId: tenant.id,
         waPhoneNumberId: phoneNumberId,
         from: message.from,
         messageId: message.id,
