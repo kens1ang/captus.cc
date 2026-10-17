@@ -20,6 +20,8 @@ export async function getOrCreateConversation(client: PoolClient, tenantId: stri
 export interface StoredMessage {
   direction: "in" | "out";
   content: string;
+  /** WhatsApp's id for an inbound message; set by getReplyHistory only. */
+  waMessageId?: string | null;
 }
 
 /** Returns the last `limit` messages, oldest first (ready to feed straight into the LLM). */
@@ -51,8 +53,8 @@ export async function getReplyHistory(
   cap = 60,
 ): Promise<StoredMessage[]> {
   const result = await client.query<StoredMessage>(
-    `SELECT direction, content FROM (
-       SELECT direction, content, created_at, row_number() OVER (ORDER BY created_at DESC) AS rn
+    `SELECT direction, content, wa_message_id AS "waMessageId" FROM (
+       SELECT direction, content, wa_message_id, created_at, row_number() OVER (ORDER BY created_at DESC) AS rn
        FROM messages WHERE conversation_id = $1
      ) m
      WHERE rn <= $2 OR (rn <= $4 AND created_at > COALESCE($3::timestamptz, '-infinity'))

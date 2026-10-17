@@ -542,10 +542,18 @@ async function writeReply(job: Job<ReplyDebounceJob>): Promise<void> {
     businessInfo,
   );
 
-  const chatHistory: ChatTurn[] = history.map((m) => ({
-    role: m.direction === "in" ? "user" : "model",
-    text: m.content,
-  }));
+  // The messages this reply answers always go last. History is ordered by
+  // when rows were saved, and a message that lands while the previous reply
+  // is being sent is saved *before* that reply — so in time order the
+  // history ends on a model turn, which Gemini rejects outright ("Requests
+  // ending with a model turn are not supported"). Seen on a real phone.
+  const unansweredIds = new Set(buffered.map((b) => b.messageId));
+  const chatHistory: ChatTurn[] = [
+    ...history
+      .filter((m) => !(m.waMessageId && unansweredIds.has(m.waMessageId)))
+      .map((m): ChatTurn => ({ role: m.direction === "in" ? "user" : "model", text: m.content })),
+    ...buffered.map((b): ChatTurn => ({ role: "user", text: b.text })),
+  ];
 
   // Combined tool palette — each family's own module owns executing its
   // own tool calls; this is just the dispatch between them by name, so

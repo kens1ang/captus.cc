@@ -202,6 +202,26 @@ async function featureScenarios(s: Seeded) {
     expect(c.replies().length <= 2, `${c.replies().length} replies`);
   });
 
+  // Found on a real phone: a message landing while the previous reply was
+  // being *sent* got saved before that reply, so the next reply's history
+  // ended on the bot's own message — Gemini rejected it and the chat was
+  // handed to a human instead of being answered.
+  await scenario(P, "Message sent while the reply is being delivered still gets answered", async () => {
+    const c = newCustomer();
+    mock.beforeNextSendTo(c.number, async () => {
+      note("> (reply in flight) is there parking nearby?");
+      await c.send("is there parking nearby?");
+      await sleep(1500); // let it be recorded before the reply is
+    });
+    note("> hi, what time do you close?");
+    await c.send("hi, what time do you close?");
+    await mock.waitFor(c.number, 2, 120_000);
+    await sleep(3000);
+    for (const r of c.replies()) note(`< ${r}`);
+    expect(c.replies().some((r) => /parking|Telawi|Bangsar Village/i.test(r)), "the parking question never got answered");
+    expect(!c.replies().some((r) => /having a little trouble replying/i.test(r)), "got a holding reply — the chat was handed to a human");
+  });
+
   await scenario(P, "Duplicate webhook delivery → one reply, one stored message", async () => {
     const c = newCustomer();
     const id = newMessageId();

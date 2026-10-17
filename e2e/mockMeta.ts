@@ -19,6 +19,7 @@ export class MockMeta {
   outbound: Outbound[] = [];
   private media = new Map<string, { data: Buffer; mime: string }>();
   private failures = new Map<string, { status: number; remaining: number }>();
+  private beforeSend = new Map<string, () => Promise<void>>();
   private server?: http.Server;
   private seq = 0;
   sendAttempts = 0;
@@ -36,6 +37,11 @@ export class MockMeta {
   /** The next `times` sends to `to` fail with `status` (Meta-side rejection / outage). */
   failSendsTo(to: string, times: number, status = 500): void {
     this.failures.set(to, { status, remaining: times });
+  }
+
+  /** Runs `fn` before answering the next text send to `to` — the reply is "in flight" meanwhile. */
+  beforeNextSendTo(to: string, fn: () => Promise<void>): void {
+    this.beforeSend.set(to, fn);
   }
 
   /** Customer-visible messages to `to` (excludes typing indicators). */
@@ -71,7 +77,7 @@ export class MockMeta {
     res.end(JSON.stringify(body));
   }
 
-  private handle(req: http.IncomingMessage, res: http.ServerResponse, body: Buffer) {
+  private async handle(req: http.IncomingMessage, res: http.ServerResponse, body: Buffer) {
     const url = new URL(req.url ?? "/", this.base);
     const parts = url.pathname.split("/").filter(Boolean);
 
@@ -99,6 +105,11 @@ export class MockMeta {
         return this.json(res, 200, { success: true });
       }
       this.sendAttempts++;
+      const before = payload.type === "text" ? this.beforeSend.get(payload.to) : undefined;
+      if (before) {
+        this.beforeSend.delete(payload.to);
+        await before();
+      }
       const fail = this.failures.get(payload.to);
       if (fail && fail.remaining > 0) {
         fail.remaining--;
