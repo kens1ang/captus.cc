@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useState, type ReactNode } from "react";
 import { BookOpen, CalendarDays, LayoutDashboard, Menu, MessageSquareText, MessagesSquare, Settings, ShieldCheck, X } from "lucide-react";
 import { cx } from "@/components/ui";
+import { BrandMark } from "@/components/BrandMark";
 
 interface NavItem {
   href: string;
@@ -71,7 +72,7 @@ export function Sidebar({
   const content = (
     <div className="flex h-full flex-col">
       <div className="flex h-14 items-center gap-2.5 border-b border-line px-4">
-        <div className="flex size-7 items-center justify-center rounded-md bg-brand text-sm font-bold text-brand-fg">C</div>
+        <BrandMark className="size-7" />
         <div className="min-w-0 leading-tight">
           <p className="text-sm font-semibold text-fg">Captus</p>
           <p className="truncate text-xs text-muted">{businessName || "Your business"}</p>
