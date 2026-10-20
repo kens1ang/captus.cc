@@ -82,3 +82,44 @@ export async function setAdmin(clerkUserId: string, isAdmin: boolean): Promise<D
   );
   return result.rows[0] ? toUser(result.rows[0]) : null;
 }
+
+/**
+ * Self-serve signup: a new tenant (no WhatsApp number yet) with this Clerk
+ * user as its owner, in one transaction. Returns null if the user already
+ * belongs to a tenant — e.g. a double-submitted form racing itself — in
+ * which case nothing is created, so no orphan tenant is left behind.
+ */
+export async function createTenantForNewUser(input: {
+  clerkUserId: string;
+  email: string;
+  businessName: string;
+  timezone?: string;
+}): Promise<{ tenantId: string; user: DashboardUser } | null> {
+  userCache.delete(input.clerkUserId);
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const tenant = await client.query<{ id: string }>(
+      `INSERT INTO tenants (business_name, timezone) VALUES ($1, COALESCE($2, 'Asia/Singapore')) RETURNING id`,
+      [input.businessName, input.timezone ?? null],
+    );
+    const tenantId = tenant.rows[0].id;
+    const user = await client.query<UserRow>(
+      `INSERT INTO users (tenant_id, clerk_user_id, email, role) VALUES ($1, $2, $3, 'owner')
+       ON CONFLICT (clerk_user_id) DO NOTHING
+       RETURNING id, tenant_id, email, role, is_admin`,
+      [tenantId, input.clerkUserId, input.email],
+    );
+    if (!user.rows[0]) {
+      await client.query("ROLLBACK");
+      return null;
+    }
+    await client.query("COMMIT");
+    return { tenantId, user: toUser(user.rows[0]) };
+  } catch (err) {
+    await client.query("ROLLBACK");
+    throw err;
+  } finally {
+    client.release();
+  }
+}

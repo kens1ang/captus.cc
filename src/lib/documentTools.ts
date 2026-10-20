@@ -36,9 +36,15 @@ function findDocument(documents: DocumentSummary[], name: string): DocumentSumma
 
 export interface DocumentToolContext {
   tenantId: string;
-  waPhoneNumberId: string;
+  /** null in the dashboard test chat: nothing is sent (the chat shows the file itself). */
+  waPhoneNumberId: string | null;
   contactWaNumber: string;
   documents: DocumentSummary[];
+}
+
+/** Public link the customer's WhatsApp downloads the file from (routes/files.ts). */
+export function documentLink(tenantId: string, documentId: string): string {
+  return `${config.backendPublicUrl}/files/${tenantId}/${documentId}`;
 }
 
 export async function executeDocumentTool(ctx: DocumentToolContext, call: ToolCall): Promise<unknown> {
@@ -50,10 +56,11 @@ export async function executeDocumentTool(ctx: DocumentToolContext, call: ToolCa
     return { success: false, error: `Unknown document "${documentName}". Available: ${ctx.documents.map((d) => d.name).join(", ")}` };
   }
 
+  if (!ctx.waPhoneNumberId) return { success: true, sent: doc.name };
   // routes/files.ts serves this — public and unauthenticated (Meta's
   // servers fetch it directly, not a logged-in dashboard user), scoped by
   // RLS via the tenantId embedded right in the path.
-  const link = `${config.backendPublicUrl}/files/${ctx.tenantId}/${doc.id}`;
+  const link = documentLink(ctx.tenantId, doc.id);
   await sendDocumentMessage(ctx.waPhoneNumberId, ctx.contactWaNumber, link, doc.filename, doc.name);
   return { success: true, sent: doc.name };
 }

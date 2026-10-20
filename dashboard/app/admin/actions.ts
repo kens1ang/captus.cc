@@ -34,6 +34,20 @@ export async function updateWabaId(tenantId: string, _prev: ActionState, formDat
   });
 }
 
+export async function updatePhoneNumberId(tenantId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
+  const whatsappPhoneNumberId = String(formData.get("whatsappPhoneNumberId") ?? "").trim();
+  if (!whatsappPhoneNumberId) return fail("Enter the phone number ID");
+
+  return attempt(async () => {
+    await backendFetch(`/api/admin/tenants/${tenantId}/whatsapp-number`, {
+      method: "POST",
+      body: JSON.stringify({ whatsappPhoneNumberId }),
+    });
+    revalidatePath("/admin");
+    return "WhatsApp number connected";
+  });
+}
+
 export async function linkClient(tenantId: string, _prev: ActionState, formData: FormData): Promise<ActionState> {
   const email = String(formData.get("email") ?? "").trim();
   const role = String(formData.get("role") ?? "owner").trim();

@@ -74,6 +74,23 @@ export default async function OverviewPage() {
         }
       />
 
+      {!me.whatsappPhoneNumberId && (
+        <Card>
+          <div className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-semibold">Your assistant isn&apos;t on WhatsApp yet</p>
+              <p className="mt-0.5 text-sm text-muted">
+                Fill in your knowledge and bookings, then try it out in the test chat. When you&apos;re happy with it, contact us at{" "}
+                <a href="mailto:hello@captus.cc" className="underline underline-offset-2">hello@captus.cc</a> to connect your WhatsApp number.
+              </p>
+            </div>
+            <ButtonLink href="/knowledge" variant="primary">
+              <MessagesSquare className="size-4" /> Test your assistant
+            </ButtonLink>
+          </div>
+        </Card>
+      )}
+
       {!allDone && (
         <Card>
           <div className="flex flex-col gap-4 border-b border-line px-5 py-4 sm:flex-row sm:items-center sm:justify-between">

@@ -2,7 +2,7 @@ import { Building2, UserPlus } from "lucide-react";
 import { ActionForm, FormFooter } from "@/components/forms";
 import { Badge, Card, CardHeader, EmptyState, Field, Page, PageHeader } from "@/components/ui";
 import { backendFetch } from "@/lib/backend";
-import { createTenant, linkClient, updateWabaId } from "./actions";
+import { createTenant, linkClient, updatePhoneNumberId, updateWabaId } from "./actions";
 
 export const metadata = { title: "All businesses" };
 
@@ -17,7 +17,7 @@ interface Tenant {
   id: string;
   businessName: string;
   businessDescription: string;
-  whatsappPhoneNumberId: string;
+  whatsappPhoneNumberId: string | null;
   whatsappBusinessAccountId: string | null;
   users: TenantUser[];
 }
@@ -60,10 +60,30 @@ export default async function AdminPage() {
             <Card key={t.id} className="flex flex-col">
               <CardHeader
                 title={t.businessName}
-                description={<span className="font-mono text-xs">{t.whatsappPhoneNumberId}</span>}
-                actions={t.whatsappBusinessAccountId ? <Badge tone="brand">WABA set</Badge> : <Badge tone="warn">No WABA</Badge>}
+                description={
+                  t.whatsappPhoneNumberId ? (
+                    <span className="font-mono text-xs">{t.whatsappPhoneNumberId}</span>
+                  ) : (
+                    "Signed up on their own — no WhatsApp number yet"
+                  )
+                }
+                actions={
+                  !t.whatsappPhoneNumberId ? (
+                    <Badge tone="warn">No number</Badge>
+                  ) : t.whatsappBusinessAccountId ? (
+                    <Badge tone="brand">WABA set</Badge>
+                  ) : (
+                    <Badge tone="warn">No WABA</Badge>
+                  )
+                }
               />
               <div className="flex flex-1 flex-col gap-4 px-5 py-4">
+                {!t.whatsappPhoneNumberId && (
+                  <ActionForm action={updatePhoneNumberId.bind(null, t.id)} className="flex gap-2">
+                    <input name="whatsappPhoneNumberId" required placeholder="WhatsApp phone number ID" className="control font-mono" />
+                    <FormFooter submitLabel="Connect" className="rounded-none border-0 bg-transparent p-0" />
+                  </ActionForm>
+                )}
                 {!t.whatsappBusinessAccountId && (
                   <ActionForm action={updateWabaId.bind(null, t.id)} className="flex gap-2">
                     <input name="whatsappBusinessAccountId" required placeholder="WABA ID (for booking reminders)" className="control font-mono" />

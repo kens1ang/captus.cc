@@ -13,7 +13,6 @@ import {
 import { sendTextMessage, sendTypingIndicator, sendTemplateMessage, downloadMedia } from "./lib/whatsapp.js";
 import {
   runReplyTurn,
-  embedText,
   transcribeAudio,
   describeMedia,
   isAnalyzableMedia,
@@ -24,7 +23,6 @@ import {
 } from "./lib/gemini.js";
 import { AllModelsFailedError, GeminiError, isTransientFailure } from "./lib/llmFallback.js";
 import { alertOperator } from "./lib/opsAlert.js";
-import { buildSystemPrompt } from "./lib/systemPrompt.js";
 import { buildBookingTools, executeBookingTool, BOOKING_TOOL_NAMES } from "./lib/bookingTools.js";
 import { buildDocumentTools, executeDocumentTool, DOCUMENT_TOOL_NAMES } from "./lib/documentTools.js";
 import { REMINDER_TEMPLATE_NAME, REMINDER_TEMPLATE_LANGUAGE, reminderBodyParams, reminderPlainText, restoreReminders } from "./lib/bookingReminders.js";
@@ -39,18 +37,7 @@ import {
   setConversationStatus,
 } from "./db/conversations.js";
 import { maybeUpdateConversationSummary, MEMORY_KEEP_RECENT } from "./lib/conversationMemory.js";
-import { searchKnowledge } from "./db/knowledge.js";
-import { listServices } from "./db/services.js";
-import { listDocuments } from "./db/documents.js";
-import { listBusinessInfo } from "./db/businessInfo.js";
-import { listBusinessHours } from "./db/businessHours.js";
-import {
-  renderAlwaysOnInfo,
-  renderAssistantStyle,
-  type ProfileData,
-  type LocationData,
-  type AssistantData,
-} from "./lib/businessInfo.js";
+import { loadBusinessContext, buildReplySystemPrompt } from "./lib/replyContext.js";
 import { getBookingById, markReminderSent } from "./db/bookings.js";
 import { withTenant } from "./db/tenantContext.js";
 import { getTenantById, getTenantByPhoneNumberId } from "./db/tenants.js";
@@ -62,7 +49,6 @@ import { config } from "./lib/config.js";
 // — which is also why this can afford to be generous now: in-session
 // coherence shouldn't depend on a summary of something said three minutes ago.
 const HISTORY_LIMIT = MEMORY_KEEP_RECENT;
-const RAG_TOP_K = 4;
 const INBOUND_CONCURRENCY = 10;
 const REPLY_CONCURRENCY = 8;
 
@@ -483,24 +469,8 @@ async function writeReply(job: Job<ReplyDebounceJob>): Promise<void> {
     // on yet, so no message is ever in neither.
     const { summary, summaryThroughMessageAt } = await getConversationMemory(client, conversationId);
     const history = await getReplyHistory(client, conversationId, HISTORY_LIMIT, summaryThroughMessageAt);
-    // Stage 5: services this tenant can be booked for, and documents it
-    // can send — [] for a tenant with neither, which keeps the reply
-    // agent's tool list exactly as before (FAQ-only).
-    const services = await listServices(client);
-    const documents = await listDocuments(client);
-    // Owner-entered business facts + voice (dashboard Knowledge pages) —
-    // the always-on part of the prompt, see lib/businessInfo.ts.
-    const sections = new Map((await listBusinessInfo(client)).map((r) => [r.section, r.data]));
-    const hours = await listBusinessHours(client);
-    const businessInfo = {
-      alwaysOn: renderAlwaysOnInfo({
-        profile: sections.get("profile") as ProfileData | undefined,
-        location: sections.get("location") as LocationData | undefined,
-        hours,
-      }),
-      assistantStyle: renderAssistantStyle(sections.get("assistant") as AssistantData | undefined),
-    };
-    return { skip: false as const, conversationId, history, services, documents, customerMemory: summary, businessInfo };
+    const context = await loadBusinessContext(client);
+    return { skip: false as const, conversationId, history, context, customerMemory: summary };
   });
 
   if (convoState.skip) {
@@ -509,38 +479,16 @@ async function writeReply(job: Job<ReplyDebounceJob>): Promise<void> {
     return;
   }
 
-  const { conversationId, history, services, documents, customerMemory, businessInfo } = convoState;
+  const { conversationId, history, context, customerMemory } = convoState;
+  const { services, documents } = context;
 
   // Show typing as soon as we know we're actually going to reply (not
   // right before send) — that's the whole point of it masking LLM latency.
   await sendTypingIndicator(waPhoneNumberId, lastMessageId);
 
-  // Embed the combined buffered text (better intent signal than any single
-  // fragment) for RAG lookup — no DB connection held during this network call.
-  // If embedding fails, answer without the FAQ lookup rather than not at
-  // all — the always-on business info (hours, prices, policies) is still in
-  // the prompt, which covers most questions. There's no fallback embedding
-  // model to switch to (see config.gemini.embeddingModel).
-  let knowledge: { content: string }[] = [];
-  try {
-    const queryEmbedding = await embedText(combinedText);
-    knowledge = await withTenant(tenantId, (client) => searchKnowledge(client, queryEmbedding, RAG_TOP_K));
-  } catch (err) {
-    console.warn(`[worker] FAQ lookup failed for ${from}, replying without it:`, err);
-    if (err instanceof GeminiError && (err.kind === "auth" || err.kind === "billing" || err.kind === "model_not_found" || err.kind === "quota_exhausted")) {
-      await alertOperator(`embed:${err.kind}`, `FAQ search is down (${err.message}). Replies still go out, but without FAQ answers.`);
-    }
-  }
-  const systemPrompt = buildSystemPrompt(
-    tenant.businessName,
-    tenant.businessDescription,
-    knowledge.map((k) => k.content),
-    tenant.timezone,
-    services,
-    documents,
-    customerMemory,
-    businessInfo,
-  );
+  // The combined buffered text is a better intent signal for the FAQ
+  // lookup than any single fragment.
+  const systemPrompt = await buildReplySystemPrompt(tenant, context, combinedText, customerMemory, from);
 
   // The messages this reply answers always go last. History is ordered by
   // when rows were saved, and a message that lands while the previous reply
@@ -723,6 +671,10 @@ const reminderWorker = new Worker<ReminderJob>(
     const tenant = await getTenantById(tenantId);
     if (!tenant) {
       throw new Error(`Tenant ${tenantId} not found for reminder on booking ${bookingId}`);
+    }
+    if (!tenant.whatsappPhoneNumberId) {
+      console.log(`[worker] skipping reminder for booking ${bookingId} — tenant has no WhatsApp number connected`);
+      return;
     }
 
     const start = DateTime.fromISO(booking.startsAt).setZone(tenant.timezone);

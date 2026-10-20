@@ -1,4 +1,5 @@
 import { SubNav } from "@/components/shell/SubNav";
+import { TestChatPanel } from "@/components/TestChatPanel";
 import { buildSetupSteps, getBusinessHours, getBusinessInfo, getDocuments, getGoogleStatus, getServices } from "@/lib/data";
 
 export const metadata = { title: "Knowledge" };
@@ -29,6 +30,7 @@ export default async function KnowledgeLayout({ children }: LayoutProps<"/knowle
         ]}
       />
       <div className="min-w-0 flex-1">{children}</div>
+      <TestChatPanel />
     </div>
   );
 }

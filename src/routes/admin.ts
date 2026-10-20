@@ -1,6 +1,12 @@
 import type { FastifyInstance } from "fastify";
 import { requireDashboardAuth, requireAdmin } from "../lib/clerkAuth.js";
-import { createTenant, listTenants, getTenantById, updateTenantWhatsappBusinessAccountId } from "../db/tenants.js";
+import {
+  createTenant,
+  listTenants,
+  getTenantById,
+  updateTenantWhatsappBusinessAccountId,
+  updateTenantWhatsappPhoneNumberId,
+} from "../db/tenants.js";
 import { linkUserToTenant, listUsersForTenant } from "../db/users.js";
 import { findClerkUserIdByEmail } from "../lib/clerkClient.js";
 
@@ -49,6 +55,26 @@ export async function adminRoutes(app: FastifyInstance) {
       const tenant = await updateTenantWhatsappBusinessAccountId(req.params.id, whatsappBusinessAccountId);
       if (!tenant) return reply.code(404).send({ error: "Tenant not found" });
       return tenant;
+    },
+  );
+
+  // Connects a WhatsApp number to a business that signed up on its own
+  // (routes/signup.ts) and has been setting up without one.
+  app.post<{ Params: { id: string }; Body: { whatsappPhoneNumberId: string } }>(
+    "/api/admin/tenants/:id/whatsapp-number",
+    async (req, reply) => {
+      const whatsappPhoneNumberId = req.body?.whatsappPhoneNumberId?.trim();
+      if (!whatsappPhoneNumberId) return reply.code(400).send({ error: "whatsappPhoneNumberId is required" });
+      try {
+        const tenant = await updateTenantWhatsappPhoneNumberId(req.params.id, whatsappPhoneNumberId);
+        if (!tenant) return reply.code(404).send({ error: "Tenant not found" });
+        return tenant;
+      } catch (err) {
+        if ((err as { code?: string }).code === "23505") {
+          return reply.code(409).send({ error: "That phone number ID already belongs to another business" });
+        }
+        throw err;
+      }
     },
   );
 

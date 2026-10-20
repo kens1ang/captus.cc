@@ -7,7 +7,8 @@ export interface Tenant {
   id: string;
   businessName: string;
   businessDescription: string;
-  whatsappPhoneNumberId: string;
+  /** null until a WhatsApp number is connected (self-serve signups start without one). */
+  whatsappPhoneNumberId: string | null;
   whatsappBusinessAccountId: string | null;
   timezone: string;
   bookingMinNoticeMinutes: number;
@@ -17,7 +18,7 @@ interface TenantRow {
   id: string;
   business_name: string;
   business_description: string;
-  whatsapp_phone_number_id: string;
+  whatsapp_phone_number_id: string | null;
   whatsapp_business_account_id: string | null;
   timezone: string;
   booking_min_notice_minutes: number;
@@ -55,13 +56,14 @@ export async function getTenantByPhoneNumberId(phoneNumberId: string): Promise<T
 export async function createTenant(input: {
   businessName: string;
   businessDescription: string;
-  whatsappPhoneNumberId: string;
+  whatsappPhoneNumberId?: string;
   whatsappBusinessAccountId?: string;
+  timezone?: string;
 }): Promise<Tenant> {
   const result = await pool.query<TenantRow>(
-    `INSERT INTO tenants (business_name, business_description, whatsapp_phone_number_id, whatsapp_business_account_id)
-     VALUES ($1, $2, $3, $4) RETURNING ${SELECT_COLUMNS}`,
-    [input.businessName, input.businessDescription, input.whatsappPhoneNumberId, input.whatsappBusinessAccountId ?? null],
+    `INSERT INTO tenants (business_name, business_description, whatsapp_phone_number_id, whatsapp_business_account_id, timezone)
+     VALUES ($1, $2, $3, $4, COALESCE($5, 'Asia/Singapore')) RETURNING ${SELECT_COLUMNS}`,
+    [input.businessName, input.businessDescription, input.whatsappPhoneNumberId ?? null, input.whatsappBusinessAccountId ?? null, input.timezone ?? null],
   );
   return toTenant(result.rows[0]);
 }
@@ -86,6 +88,15 @@ export async function updateTenantWhatsappBusinessAccountId(id: string, whatsapp
   const result = await pool.query<TenantRow>(
     `UPDATE tenants SET whatsapp_business_account_id = $2 WHERE id = $1 RETURNING ${SELECT_COLUMNS}`,
     [id, whatsappBusinessAccountId],
+  );
+  return result.rows[0] ? toTenant(result.rows[0]) : null;
+}
+
+/** Connects a WhatsApp number to a tenant that signed up without one. */
+export async function updateTenantWhatsappPhoneNumberId(id: string, whatsappPhoneNumberId: string): Promise<Tenant | null> {
+  const result = await pool.query<TenantRow>(
+    `UPDATE tenants SET whatsapp_phone_number_id = $2 WHERE id = $1 RETURNING ${SELECT_COLUMNS}`,
+    [id, whatsappPhoneNumberId],
   );
   return result.rows[0] ? toTenant(result.rows[0]) : null;
 }

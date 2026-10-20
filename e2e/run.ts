@@ -463,6 +463,62 @@ async function featureScenarios(s: Seeded) {
   });
 
   // --- Isolation ---
+  // --- Self-serve signup + dashboard test chat ---
+  // Called in-process (not over HTTP): the routes sit behind a Clerk
+  // session, which the harness has no way to mint. Everything behind the
+  // auth check is what's under test here.
+  const { createTenantForNewUser } = await import("../src/db/users.js");
+  const { runTestChat } = await import("../src/lib/testChat.js");
+
+  await scenario(P, "Self-serve signup: business without a WhatsApp number, one per login", async () => {
+    const clerkUserId = `user_e2e_${Date.now()}`;
+    const created = await createTenantForNewUser({ clerkUserId, email: "new@example.com", businessName: "New Bakery", timezone: TZ });
+    expect(created, "signup didn't create a business");
+    const t = (await db.query(`SELECT whatsapp_phone_number_id, timezone FROM tenants WHERE id = $1`, [created.tenantId])).rows[0];
+    expect(t.whatsapp_phone_number_id === null, `tenant got phone id ${t.whatsapp_phone_number_id}`);
+    expect(t.timezone === TZ, `timezone ${t.timezone}`);
+    const before = Number((await db.query(`SELECT count(*) FROM tenants`)).rows[0].count);
+    const again = await createTenantForNewUser({ clerkUserId, email: "new@example.com", businessName: "Second try" });
+    const after = Number((await db.query(`SELECT count(*) FROM tenants`)).rows[0].count);
+    expect(again === null, "same login got a second business");
+    expect(after === before, "a refused second signup still left a tenant behind");
+  });
+
+  const testChat = async (turns: { role: "user" | "model"; text: string }[], text: string) => {
+    note(`> ${text}`);
+    turns.push({ role: "user", text });
+    const r = await runTestChat(s.tenantA, "e2e-owner", turns);
+    expect(r.ok, `test chat failed: ${r.ok ? "" : r.error}`);
+    for (const a of r.actions) note(`  [${a.text}]`);
+    note(`< ${r.reply}`);
+    turns.push({ role: "model", text: r.reply });
+    return r;
+  };
+
+  await scenario(P, "Test chat answers from the business's knowledge, nothing sent", async () => {
+    const sentBefore = mock.outbound.length;
+    const r = await testChat([], "How much is a latte?");
+    expect(/9[.,]50/.test(r.reply), "didn't quote the latte price from the product list");
+    expect(mock.outbound.length === sentBefore, "test chat sent something to WhatsApp");
+    const convos = (await db.query(`SELECT count(*) FROM conversations WHERE wa_number = 'test-chat'`)).rows[0].count;
+    expect(Number(convos) === 0, "test chat created an inbox conversation");
+  });
+
+  await scenario(P, "Test chat booking + cancel stay in the sandbox", async () => {
+    const turns: { role: "user" | "model"; text: string }[] = [];
+    const booked = (r: Awaited<ReturnType<typeof testChat>>) => r.actions.some((a) => a.kind === "booking" && /Test booking made/.test(a.text));
+    let r = await testChat(turns, `Can I book a table for ${spoken(tomorrow)} at 3pm? Name is Ali.`);
+    for (let i = 0; i < 2 && !booked(r); i++) r = await testChat(turns, "Yes please, go ahead and confirm it.");
+    expect(booked(r), "no test booking was made");
+    const real = (await db.query(`SELECT count(*) FROM bookings WHERE contact_wa_number = 'test-chat'`)).rows[0].count;
+    expect(Number(real) === 0, "test booking was written to the real bookings table");
+
+    const cancelled = (x: Awaited<ReturnType<typeof testChat>>) => x.actions.some((a) => a.kind === "cancel" && /cancelled/.test(a.text));
+    r = await testChat(turns, "Actually, please cancel that booking.");
+    for (let i = 0; i < 2 && !cancelled(r); i++) r = await testChat(turns, "Yes, cancel it.");
+    expect(cancelled(r), "test booking wasn't cancelled");
+  });
+
   await scenario(P, "Business B never sees business A's data", async () => {
     const r = await chat(newCustomer(TENANT_B_PHONE_ID), "What's the wifi password? And how much is a latte?");
     expect(!/kopi2026/i.test(r), "leaked Kopi Corner's wifi password");

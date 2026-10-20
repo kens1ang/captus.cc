@@ -22,12 +22,27 @@ export default async function IntegrationsPage(props: PageProps<"/settings/integ
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <p className="text-sm font-semibold">WhatsApp Business</p>
-              <Badge tone="brand" dot>
-                Connected
-              </Badge>
+              {me.whatsappPhoneNumberId ? (
+                <Badge tone="brand" dot>
+                  Connected
+                </Badge>
+              ) : (
+                <Badge tone="warn" dot>
+                  Not connected
+                </Badge>
+              )}
             </div>
             <p className="mt-0.5 text-sm text-muted">
-              Phone number ID <span className="font-mono text-xs">{me.whatsappPhoneNumberId}</span>. Managed by Captus — contact us to change numbers.
+              {me.whatsappPhoneNumberId ? (
+                <>
+                  Phone number ID <span className="font-mono text-xs">{me.whatsappPhoneNumberId}</span>. Managed by Captus — contact us to change numbers.
+                </>
+              ) : (
+                <>
+                  No WhatsApp number yet. Set up your knowledge and try the assistant in the test chat on the Knowledge tab, then contact us at{" "}
+                  <a href="mailto:hello@captus.cc" className="underline underline-offset-2">hello@captus.cc</a> to connect your number.
+                </>
+              )}
             </p>
           </div>
         </div>

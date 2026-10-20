@@ -14,3 +14,10 @@ export async function findClerkUserIdByEmail(email: string): Promise<string | nu
   const result = await clerkClient.users.getUserList({ emailAddress: [email] });
   return result.data[0]?.id ?? null;
 }
+
+/** The user's primary email, for self-serve signup (the session token itself doesn't carry it). */
+export async function getClerkUserEmail(clerkUserId: string): Promise<string | null> {
+  const user = await clerkClient.users.getUser(clerkUserId);
+  const primary = user.emailAddresses.find((e) => e.id === user.primaryEmailAddressId) ?? user.emailAddresses[0];
+  return primary?.emailAddress ?? null;
+}

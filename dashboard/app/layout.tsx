@@ -2,10 +2,10 @@ import type { Metadata } from "next";
 import { ClerkProvider, UserButton } from "@clerk/nextjs";
 import { Geist, Geist_Mono } from "next/font/google";
 import { auth } from "@clerk/nextjs/server";
-import { Link2Off } from "lucide-react";
 import { BackendError } from "@/lib/backend";
 import { getConversations, getMe, needsAttention as isNeedsAttention, type Me } from "@/lib/data";
 import { Sidebar } from "@/components/shell/Sidebar";
+import { CreateBusiness } from "@/components/CreateBusiness";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -26,33 +26,15 @@ export const metadata: Metadata = {
   },
 };
 
-function NotLinked() {
-  return (
-    <div className="flex min-h-screen items-center justify-center p-6">
-      <div className="w-full max-w-md rounded-lg border border-line bg-panel p-8 text-center shadow-xs">
-        <div className="mx-auto mb-4 flex size-11 items-center justify-center rounded-lg border border-line bg-subtle text-muted">
-          <Link2Off className="size-5" />
-        </div>
-        <h1 className="text-lg font-semibold">Your account isn&apos;t linked to a business yet</h1>
-        <p className="mt-2 text-sm text-muted">
-          Ask your Captus contact to link this login to your business. Once they do, refresh this page.
-        </p>
-        <div className="mt-6 flex justify-center">
-          <UserButton />
-        </div>
-      </div>
-    </div>
-  );
-}
-
 async function Shell({ children }: { children: React.ReactNode }) {
-  // A 403 means signed in but not linked to any tenant — show one friendly
-  // screen for the whole app instead of every page failing on its own fetch.
+  // A 403 means signed in but not linked to any business yet — a fresh
+  // signup. One screen for the whole app (instead of every page failing on
+  // its own fetch) where they create their business and get started.
   let me: Me;
   try {
     me = await getMe();
   } catch (err) {
-    if (err instanceof BackendError && err.status === 403) return <NotLinked />;
+    if (err instanceof BackendError && err.status === 403) return <CreateBusiness />;
     throw err;
   }
   // Inbox badge — best-effort, a hiccup here shouldn't take down every page.

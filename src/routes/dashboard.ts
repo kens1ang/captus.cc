@@ -86,6 +86,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
 
     const tenant = await getTenantById(tenantId);
     if (!tenant) return reply.code(500).send({ error: "Tenant not found" });
+    if (!tenant.whatsappPhoneNumberId) return reply.code(409).send({ error: "No WhatsApp number connected yet" });
 
     // Send first — only record it (and flip to human_active) once WhatsApp
     // actually has it. Otherwise a failed send (e.g. a Meta-side rejection)
@@ -282,7 +283,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
     // dashboard-side cancellation should reach them the same way, not leave
     // them showing up expecting an appointment that's gone.
     const tenant = await getTenantById(tenantId);
-    if (tenant) {
+    if (tenant?.whatsappPhoneNumberId) {
       const notice = `Your ${cancelled.serviceName ?? "appointment"} has been cancelled. Let us know if you'd like to book another time.`;
       try {
         await sendTextMessage(tenant.whatsappPhoneNumberId, cancelled.contactWaNumber, notice);

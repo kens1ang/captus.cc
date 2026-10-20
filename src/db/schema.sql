@@ -222,3 +222,10 @@ CREATE TABLE IF NOT EXISTS business_info (
   PRIMARY KEY (tenant_id, section)
 );
 CREATE INDEX IF NOT EXISTS knowledge_chunks_tenant_source_idx ON knowledge_chunks (tenant_id, source);
+
+-- Self-serve signup: a business signs up with just an email, sets up its
+-- knowledge and bookings, and tries the assistant in the dashboard's test
+-- chat before any WhatsApp number exists. The number is attached later
+-- (admin, or Embedded Signup). UNIQUE still holds — Postgres allows any
+-- number of NULLs in a unique column.
+ALTER TABLE tenants ALTER COLUMN whatsapp_phone_number_id DROP NOT NULL;

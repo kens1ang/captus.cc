@@ -119,6 +119,21 @@ export interface BookingToolContext {
   services: Service[];
   conversationId: string;
   contactWaNumber: string;
+  /**
+   * Dashboard test chat: availability is checked against the real calendar,
+   * but bookings live only in this list — no bookings row, no Google event,
+   * no reminder. Set it and nothing a tool call does leaves the test chat.
+   */
+  sandbox?: SandboxBooking[];
+}
+
+export interface SandboxBooking {
+  id: string;
+  serviceId: string;
+  serviceName: string;
+  startsAt: string;
+  endsAt: string;
+  contactName: string | null;
 }
 
 /** Shared by book_appointment and reschedule_appointment's new-slot leg — assumes the caller already re-validated availability. */
@@ -167,6 +182,8 @@ async function getOwnBooking(ctx: BookingToolContext, bookingId: string): Promis
 
 /** Dispatches a single tool call from the reply agent loop — the only place booking tool names/args are actually executed against real data. */
 export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall): Promise<unknown> {
+  if (ctx.sandbox && call.name !== CHECK_AVAILABILITY) return executeSandboxBookingTool(ctx, ctx.sandbox, call);
+
   if (call.name === CHECK_AVAILABILITY) {
     const serviceName = call.args.service_name as string | undefined;
     const service = serviceName ? findService(ctx.services, serviceName) : undefined;
@@ -276,6 +293,83 @@ export async function executeBookingTool(ctx: BookingToolContext, call: ToolCall
       }
     }
     const rebooked = await createConfirmedBooking(ctx, service, newStartISO, existing.contactName);
+    return {
+      success: true,
+      old_label: label(existing.startsAt, existing.endsAt, ctx.timezone),
+      new_booking_id: rebooked.id,
+      new_label: label(rebooked.startsAt, rebooked.endsAt, ctx.timezone),
+    };
+  }
+
+  return { error: `Unknown tool "${call.name}"` };
+}
+
+/**
+ * The test-chat versions of book / list / cancel / reschedule: same
+ * validation and same result shapes as the real ones above (so the model
+ * behaves the same), but they only ever touch the in-memory `bookings` list.
+ */
+async function executeSandboxBookingTool(ctx: BookingToolContext, bookings: SandboxBooking[], call: ToolCall): Promise<unknown> {
+  const slotOpen = (service: Service, startISO: string) =>
+    withTenant(ctx.tenantId, (client) =>
+      isSlotAvailable(client, ctx.tenantId, ctx.timezone, service.durationMinutes, service.capacity, startISO, ctx.minNoticeMinutes),
+    );
+  const add = (service: Service, startISO: string, contactName: string | null): SandboxBooking => {
+    const booking = {
+      id: `test-${bookings.length + 1}`,
+      serviceId: service.id,
+      serviceName: service.name,
+      startsAt: startISO,
+      endsAt: DateTime.fromISO(startISO).plus({ minutes: service.durationMinutes }).toISO()!,
+      contactName,
+    };
+    bookings.push(booking);
+    return booking;
+  };
+  const remove = (id: string | undefined): SandboxBooking | null => {
+    const i = bookings.findIndex((b) => b.id === id);
+    return i === -1 ? null : bookings.splice(i, 1)[0];
+  };
+
+  if (call.name === BOOK_APPOINTMENT) {
+    const serviceName = call.args.service_name as string | undefined;
+    const startISO = call.args.start_iso as string | undefined;
+    const service = serviceName ? findService(ctx.services, serviceName) : undefined;
+    if (!service) return { success: false, error: `Unknown service "${serviceName}".` };
+    if (!startISO || !DateTime.fromISO(startISO).isValid) {
+      return { success: false, error: "start_iso is missing or not a valid ISO timestamp." };
+    }
+    if (!(await slotOpen(service, startISO))) {
+      return { success: false, error: "That slot is no longer available — call check_availability again for current options." };
+    }
+    const booking = add(service, startISO, (call.args.customer_name as string | undefined) ?? null);
+    return { success: true, booking_id: booking.id, confirmed_label: label(booking.startsAt, booking.endsAt, ctx.timezone) };
+  }
+
+  if (call.name === LIST_MY_BOOKINGS) {
+    return { bookings: bookings.map((b) => ({ booking_id: b.id, service: b.serviceName, label: label(b.startsAt, b.endsAt, ctx.timezone) })) };
+  }
+
+  if (call.name === CANCEL_APPOINTMENT) {
+    const cancelled = remove(call.args.booking_id as string | undefined);
+    if (!cancelled) return { success: false, error: "No matching upcoming booking found for this customer — call list_my_bookings to check." };
+    return { success: true, cancelled_label: label(cancelled.startsAt, cancelled.endsAt, ctx.timezone) };
+  }
+
+  if (call.name === RESCHEDULE_APPOINTMENT) {
+    const existing = bookings.find((b) => b.id === (call.args.booking_id as string | undefined));
+    const newStartISO = call.args.new_start_iso as string | undefined;
+    if (!existing) return { success: false, error: "No matching upcoming booking found for this customer — call list_my_bookings to check." };
+    if (!newStartISO || !DateTime.fromISO(newStartISO).isValid) {
+      return { success: false, error: "new_start_iso is missing or not a valid ISO timestamp." };
+    }
+    const service = ctx.services.find((sv) => sv.id === existing.serviceId);
+    if (!service) return { success: false, error: "The original service for this booking no longer exists — please book a new appointment instead." };
+    if (!(await slotOpen(service, newStartISO))) {
+      return { success: false, error: "That new time isn't available — call check_availability again and the existing booking is unchanged." };
+    }
+    remove(existing.id);
+    const rebooked = add(service, newStartISO, existing.contactName);
     return {
       success: true,
       old_label: label(existing.startsAt, existing.endsAt, ctx.timezone),

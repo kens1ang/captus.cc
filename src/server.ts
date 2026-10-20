@@ -6,6 +6,8 @@ import { dashboardRoutes } from "./routes/dashboard.js";
 import { adminRoutes } from "./routes/admin.js";
 import { googleAuthRoutes } from "./routes/googleAuth.js";
 import { fileRoutes } from "./routes/files.js";
+import { signupRoutes } from "./routes/signup.js";
+import { testChatRoutes } from "./routes/testChat.js";
 
 declare module "fastify" {
   interface FastifyRequest {
@@ -38,7 +40,9 @@ async function main() {
   await app.register(cors, { origin: config.dashboardOrigin });
 
   await app.register(webhookRoutes);
+  await app.register(signupRoutes);
   await app.register(dashboardRoutes);
+  await app.register(testChatRoutes);
   await app.register(adminRoutes);
   await app.register(googleAuthRoutes);
   await app.register(fileRoutes);
