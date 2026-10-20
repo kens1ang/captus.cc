@@ -85,3 +85,19 @@ export const reminderQueue = new Queue<ReminderJob>(REMINDER_QUEUE, {
     removeOnFail: 1000,
   },
 });
+
+// --- Queue 4: "fill in my Knowledge from my website / socials" imports
+// (lib/businessImport.ts). Owner-triggered and visible in the dashboard, so
+// no automatic retry: a retry would re-spend Gemini quota on a job the owner
+// can simply start again, and its progress lives in Redis, not the job. ---
+export const BUSINESS_IMPORT_QUEUE = "business-import";
+
+export interface BusinessImportJob {
+  tenantId: string;
+  urls: string[];
+}
+
+export const businessImportQueue = new Queue<BusinessImportJob>(BUSINESS_IMPORT_QUEUE, {
+  connection,
+  defaultJobOptions: { attempts: 1, removeOnComplete: 100, removeOnFail: 100 },
+});

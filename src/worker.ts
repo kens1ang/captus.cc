@@ -6,10 +6,13 @@ import {
   REPLY_DEBOUNCE_QUEUE,
   replyDebounceQueue,
   REMINDER_QUEUE,
+  BUSINESS_IMPORT_QUEUE,
   type InboundMessageJob,
   type ReplyDebounceJob,
   type ReminderJob,
+  type BusinessImportJob,
 } from "./lib/queue.js";
+import { runImport } from "./lib/businessImport.js";
 import { sendTextMessage, sendTypingIndicator, sendTemplateMessage, downloadMedia } from "./lib/whatsapp.js";
 import {
   runReplyTurn,
@@ -710,7 +713,11 @@ const reminderWorker = new Worker<ReminderJob>(
   { connection, concurrency: 5 },
 );
 
-for (const w of [inboundWorker, replyWorker, reminderWorker]) {
+// --- Worker 4: website/social import into a Knowledge draft (lib/businessImport.ts).
+// runImport records every outcome itself, so it never fails the job. ---
+const importWorker = new Worker<BusinessImportJob>(BUSINESS_IMPORT_QUEUE, (job) => runImport(job.data), { connection, concurrency: 2 });
+
+for (const w of [inboundWorker, replyWorker, reminderWorker, importWorker]) {
   w.on("completed", (job) => console.log(`[worker] job ${job.id} completed`));
   w.on("failed", (job, err) => console.error(`[worker] job ${job?.id} failed:`, err));
 }

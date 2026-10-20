@@ -25,6 +25,14 @@ export function CreateBusiness() {
               <Field label="Business name" htmlFor="businessName">
                 <input id="businessName" name="businessName" required maxLength={120} autoFocus placeholder="e.g. Glow Beauty Salon" className="control" />
               </Field>
+              <Field
+                label="Website or social media"
+                htmlFor="urls"
+                optional
+                hint="We'll read them and draft your prices, hours and FAQs for you to check. Separate links with a space or new line."
+              >
+                <textarea id="urls" name="urls" rows={2} placeholder={"glowbeauty.my\ninstagram.com/glowbeauty"} className="control min-h-16 resize-y" />
+              </Field>
               {/* The browser's zone, so booking times are right from the start. */}
               <input type="hidden" name="timezone" ref={(el) => void (el && (el.value = Intl.DateTimeFormat().resolvedOptions().timeZone ?? ""))} />
               <SubmitButton variant="primary" pendingText="Creating…">

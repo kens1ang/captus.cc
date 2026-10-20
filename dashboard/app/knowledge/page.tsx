@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { ArrowRight, Building2, CircleHelp, FileText, MapPin, Package, ScrollText, StickyNote, type LucideIcon } from "lucide-react";
 import { Badge, Page, PageHeader } from "@/components/ui";
+import { ImportCard } from "@/components/ImportCard";
 import { formatRelative } from "@/lib/formatDate";
 import {
   buildSetupSteps,
@@ -8,6 +9,7 @@ import {
   getBusinessInfo,
   getDocuments,
   getGoogleStatus,
+  getImportState,
   getKnowledgeChunks,
   getServices,
   getSettings,
@@ -73,7 +75,7 @@ function plural(n: number, one: string, many = `${one}s`) {
 }
 
 export default async function KnowledgeOverviewPage() {
-  const [info, hours, documents, google, services, chunks, settings] = await Promise.all([
+  const [info, hours, documents, google, services, chunks, settings, importState] = await Promise.all([
     getBusinessInfo(),
     getBusinessHours(),
     getDocuments(),
@@ -81,6 +83,8 @@ export default async function KnowledgeOverviewPage() {
     getServices(),
     getKnowledgeChunks(),
     getSettings(),
+    // Best-effort — the import card is a shortcut, not something to take the page down over.
+    getImportState().catch(() => null),
   ]);
   const tz = settings.timezone;
   const done = Object.fromEntries(buildSetupSteps({ info, hours, documents, google, services }).map((s) => [s.key, s.done]));
@@ -95,6 +99,8 @@ export default async function KnowledgeOverviewPage() {
         title="Knowledge"
         description="Everything your assistant knows about your business. It only answers from what's here — anything missing gets handed to you instead of guessed."
       />
+
+      <ImportCard initial={importState} />
 
       <Group title="Always known" description="Included in every reply, so the basics are never missed.">
         <TileGrid

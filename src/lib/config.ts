@@ -93,6 +93,12 @@ export const config = {
     // FAQ lookup instead (worker.ts).
     embeddingModel: process.env.GEMINI_EMBEDDING_MODEL ?? "gemini-embedding-001",
   },
+  import: {
+    // Lets the website import (lib/businessImport.ts) fetch localhost/private
+    // addresses. ONLY for the e2e suite, which serves its fixture website
+    // locally — in production this must stay off (see lib/safeFetch.ts).
+    allowPrivateHosts: process.env.IMPORT_ALLOW_PRIVATE_HOSTS === "1",
+  },
   // Where operator alerts go (Gemini key/billing/quota problems, every model
   // failing) — these are YOUR problems as the operator, not the business
   // owner's. Sent to OWNER_NOTIFY_NUMBER from this WhatsApp number.

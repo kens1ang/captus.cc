@@ -1,5 +1,6 @@
 import { cache } from "react";
 import { backendFetch } from "./backend";
+import { POLICY_FIELDS } from "./policies";
 
 // Typed wrappers around the backend's /api/* routes. Wrapped in React's
 // cache() so the layout and a page can both ask for e.g. /api/me in the same
@@ -95,18 +96,7 @@ export interface ProductsData {
   items: ProductItem[];
   notes: string;
 }
-export const POLICY_FIELDS = [
-  { key: "payment", label: "Payment methods", placeholder: "e.g. Cash, card, DuitNow QR, bank transfer. No cheques." },
-  { key: "delivery", label: "Delivery & shipping", placeholder: "e.g. Free delivery within 5km for orders over RM50. Same-day if ordered before 2pm." },
-  { key: "returns", label: "Returns & refunds", placeholder: "e.g. Unopened items can be returned within 7 days with receipt for a full refund." },
-  {
-    key: "cancellation",
-    label: "Cancellations & rescheduling",
-    placeholder: "e.g. Free cancellation up to 24 hours before your appointment. Late cancellations forfeit the deposit.",
-  },
-  { key: "warranty", label: "Warranty & guarantees", placeholder: "e.g. 6-month warranty on all repairs, covering parts and labour." },
-  { key: "other", label: "Anything else", placeholder: "e.g. Pets welcome. Kids under 5 eat free. No outside food." },
-] as const;
+export { POLICY_FIELDS };
 export type PolicyKey = (typeof POLICY_FIELDS)[number]["key"];
 export type PoliciesData = Record<PolicyKey, string>;
 export interface FaqItem {
@@ -179,7 +169,34 @@ export interface TemplatesResponse {
   reminderTemplateName: string;
 }
 
+// Website / social media import (backend lib/businessImport.ts): a draft in
+// the Knowledge pages' own shapes, applied only after the owner reviews it.
+export const IMPORT_PARTS = ["profile", "location", "hours", "products", "policies", "faqs"] as const;
+export type ImportPart = (typeof IMPORT_PARTS)[number];
+
+export interface ImportDraft {
+  businessDescription: string;
+  profile: ProfileData;
+  location: LocationData;
+  hours: BusinessHoursInterval[];
+  products: ProductItem[];
+  policies: PoliciesData;
+  faqs: FaqItem[];
+}
+
+export interface ImportState {
+  status: "running" | "done" | "failed";
+  urls: string[];
+  startedAt: string;
+  finishedAt?: string;
+  step?: string;
+  sources?: { label: string; url?: string; ok: boolean; note?: string }[];
+  draft?: ImportDraft;
+  error?: string;
+}
+
 export const getMe = cache(() => backendFetch<Me>("/api/me"));
+export const getImportState = cache(() => backendFetch<{ import: ImportState | null }>("/api/import").then((r) => r.import));
 export const getSettings = cache(() => backendFetch<{ timezone: string; bookingMinNoticeMinutes: number }>("/api/settings"));
 export const getConversations = cache(() => backendFetch<ConversationSummary[]>("/api/conversations"));
 export const getBusinessInfo = cache(() => backendFetch<BusinessInfo>("/api/business-info"));

@@ -519,6 +519,87 @@ async function featureScenarios(s: Seeded) {
     expect(cancelled(r), "test booking wasn't cancelled");
   });
 
+  // --- Website import → reviewed draft → applied to Knowledge ---
+  // A small bakery site served locally (the import may fetch localhost only
+  // because the e2e env sets IMPORT_ALLOW_PRIVATE_HOSTS); the job runs in the
+  // app's real worker with real Gemini.
+  const { startImport, getImportState, applyImport } = await import("../src/lib/businessImport.js");
+  const { safeFetch } = await import("../src/lib/safeFetch.js");
+  const { saveBusinessSection } = await import("../src/lib/businessInfoStore.js");
+  const http = await import("node:http");
+  const site: Record<string, string> = {
+    "/": `<html><head><title>Roti Lane Bakery</title><meta name="description" content="Neighbourhood sourdough bakery in Taman Tun Dr Ismail, KL.">
+      <script type="application/ld+json">{"@type":"Bakery","name":"Roti Lane Bakery","telephone":"+60 12-345 6789","address":"12 Jalan Datuk Sulaiman, TTDI, 60000 Kuala Lumpur",
+      "openingHours":["Tu-Su 08:00-18:00"]}</script></head><body><nav><a href="/menu">Menu & Prices</a> <a href="/contact">Contact us</a> <a href="/faq">FAQ</a> <a href="/cart">Cart</a></nav>
+      <h1>Roti Lane Bakery</h1><p>Small-batch sourdough baked fresh every morning since 2019. Closed on Mondays.</p></body></html>`,
+    "/menu": `<html><body><h1>Menu</h1><table><tr><td>Sourdough Loaf</td><td>RM 14</td></tr><tr><td>Croissant</td><td>RM 6.50</td></tr>
+      <tr><td>Kaya Bun</td><td>RM 4</td></tr></table><p>Prices include SST.</p></body></html>`,
+    "/contact": `<html><body><p>Email: hello@rotilane.my. Free parking behind the shop.</p><p>We accept cash, card and DuitNow QR.</p></body></html>`,
+    "/faq": `<html><body><h2>Do you take custom cake orders?</h2><p>Yes — order at least 3 days ahead by WhatsApp.</p></body></html>`,
+  };
+  const siteServer = http.createServer((req, res) => {
+    const page = site[req.url ?? "/"];
+    res.writeHead(page ? 200 : 404, { "content-type": "text/html; charset=utf-8" });
+    res.end(page ?? "not found");
+  });
+  await new Promise<void>((r) => siteServer.listen(0, "127.0.0.1", r));
+  const siteUrl = `http://127.0.0.1:${(siteServer.address() as { port: number }).port}/`;
+
+  await scenario(P, "Website import: drafts hours, prices and FAQs; applying never overwrites the owner", async () => {
+    const created = await createTenantForNewUser({ clerkUserId: `user_import_${Date.now()}`, email: "bakery@example.com", businessName: "Roti Lane Bakery", timezone: TZ });
+    expect(created, "no tenant");
+    const tenantId = created.tenantId;
+    // What the owner already wrote — must survive the import untouched.
+    await saveBusinessSection(tenantId, "products", { items: [{ name: "Croissant", price: "RM 5.00 (owner's price)", description: "" }], notes: "" });
+    await saveBusinessSection(tenantId, "location", { phone: "+60 11-0000 0000" });
+
+    const t0 = Date.now();
+    await startImport(tenantId, [siteUrl]);
+    let state = await getImportState(tenantId);
+    while (state?.status === "running" && Date.now() - t0 < 120_000) {
+      await new Promise((r) => setTimeout(r, 1000));
+      state = await getImportState(tenantId);
+    }
+    note(`import took ${((Date.now() - t0) / 1000).toFixed(1)}s, status ${state?.status}`);
+    expect(state?.status === "done" && state.draft, `import didn't finish: ${JSON.stringify(state).slice(0, 300)}`);
+    const d = state.draft;
+    note(`sources: ${state.sources?.map((s) => `${s.label}=${s.ok ? "ok" : "no"} (${s.note})`).join(", ")}`);
+    note(`hours: ${d.hours.map((h) => `${h.dayOfWeek} ${h.startTime}-${h.endTime}`).join(", ")}`);
+    note(`products: ${d.products.map((p) => `${p.name} ${p.price}`).join(", ")}`);
+    expect(d.hours.length === 6 && !d.hours.some((h) => h.dayOfWeek === 1), "hours should be Tue–Sun, closed Monday");
+    expect(d.hours.every((h) => h.startTime === "08:00" && h.endTime === "18:00"), "wrong opening times");
+    expect(d.products.some((p) => /sourdough/i.test(p.name) && /14/.test(p.price)), "sourdough price missing");
+    expect(d.faqs.some((f) => /cake/i.test(f.question)) || /cake/i.test(JSON.stringify(d.policies)), "custom cake FAQ missing");
+    expect(/duitnow/i.test(d.policies.payment), "payment methods missing");
+    expect(!d.products.some((p) => /cart/i.test(p.name)), "site navigation leaked into products");
+
+    const applied = await applyImport(tenantId, ["profile", "location", "hours", "products", "policies", "faqs"]);
+    note(`applied: ${JSON.stringify(applied)}`);
+    const info = new Map((await db.query(`SELECT section, data FROM business_info WHERE tenant_id = $1`, [tenantId])).rows.map((r) => [r.section, r.data]));
+    const products = info.get("products").items as { name: string; price: string }[];
+    expect(products.find((p) => p.name === "Croissant")?.price === "RM 5.00 (owner's price)", "the owner's croissant price was overwritten");
+    expect(products.filter((p) => /croissant/i.test(p.name)).length === 1, "croissant duplicated");
+    expect(products.some((p) => /sourdough/i.test(p.name)), "new products not added");
+    expect(info.get("location").phone === "+60 11-0000 0000", "the owner's phone was overwritten");
+    expect(/rotilane/i.test(info.get("location").email), "empty email field not filled");
+    const hours = Number((await db.query(`SELECT count(*) FROM business_hours WHERE tenant_id = $1`, [tenantId])).rows[0].count);
+    expect(hours === 6, `expected 6 days of hours, got ${hours}`);
+    const chunks = Number((await db.query(`SELECT count(*) FROM knowledge_chunks WHERE tenant_id = $1 AND source = 'section:products'`, [tenantId])).rows[0].count);
+    expect(chunks === products.length, "products weren't re-indexed for search");
+    expect((await getImportState(tenantId)) === null, "draft not cleared after applying");
+  });
+
+  await scenario(P, "Website import refuses private addresses (SSRF)", async () => {
+    for (const url of [siteUrl, siteUrl.replace("127.0.0.1", "localhost"), "http://[::1]/", "http://169.254.169.254/latest/meta-data/", "http://10.0.0.1/"]) {
+      const err = await safeFetch(url).then(
+        () => null,
+        (e: Error) => e,
+      );
+      expect(err && /private address/.test(err.message), `fetched ${url}: ${err?.message ?? "no error"}`);
+    }
+  });
+  siteServer.close();
+
   await scenario(P, "Business B never sees business A's data", async () => {
     const r = await chat(newCustomer(TENANT_B_PHONE_ID), "What's the wifi password? And how much is a latte?");
     expect(!/kopi2026/i.test(r), "leaked Kopi Corner's wifi password");

@@ -3,9 +3,10 @@ import { requireDashboardAuth } from "../lib/clerkAuth.js";
 import { withTenant } from "../db/tenantContext.js";
 import { getTenantById, updateTenantBookingNotice, updateTenantTimezone, updateTenantProfile } from "../db/tenants.js";
 import { sendTextMessage } from "../lib/whatsapp.js";
-import { ingestKnowledgeText, replaceKnowledgeSource } from "../lib/knowledgeIngest.js";
-import { listBusinessInfo, upsertBusinessInfo } from "../db/businessInfo.js";
-import { isSectionKey, normalizeSection, renderIndexedChunks, knowledgeSourceFor, INDEXED_SECTIONS } from "../lib/businessInfo.js";
+import { ingestKnowledgeText } from "../lib/knowledgeIngest.js";
+import { listBusinessInfo } from "../db/businessInfo.js";
+import { isSectionKey } from "../lib/businessInfo.js";
+import { saveBusinessSection } from "../lib/businessInfoStore.js";
 import {
   listConversations,
   getConversation,
@@ -155,8 +156,6 @@ export async function dashboardRoutes(app: FastifyInstance) {
       const tenantId = req.dashboardUser!.tenantId;
       const { section } = req.params;
       if (!isSectionKey(section)) return reply.code(404).send({ error: "Unknown section" });
-      const data = normalizeSection(section, req.body?.data);
-
       // The business name/description predate business_info and live on
       // `tenants` (the prompt and admin page read them there), so the profile
       // section writes them through rather than storing a second copy.
@@ -167,16 +166,7 @@ export async function dashboardRoutes(app: FastifyInstance) {
         await updateTenantProfile(tenantId, businessName.slice(0, 200), businessDescription);
       }
 
-      if (INDEXED_SECTIONS.includes(section)) {
-        const chunks = renderIndexedChunks(section, data);
-        const chunksIndexed = await replaceKnowledgeSource(tenantId, knowledgeSourceFor(section), chunks, (client) =>
-          upsertBusinessInfo(client, tenantId, section, data),
-        );
-        return { ok: true, data, chunksIndexed };
-      }
-
-      await withTenant(tenantId, (client) => upsertBusinessInfo(client, tenantId, section, data));
-      return { ok: true, data };
+      return { ok: true, ...(await saveBusinessSection(tenantId, section, req.body?.data)) };
     },
   );
 

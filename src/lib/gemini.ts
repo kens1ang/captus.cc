@@ -350,6 +350,52 @@ export async function describeMedia(data: Buffer, mimeType: string, filename?: s
   );
 }
 
+// --- Business import (lib/businessImport.ts): a one-off, owner-triggered job
+// with nobody waiting on a WhatsApp reply, so it can afford a longer deadline
+// on a big input than a customer reply can. ---
+const IMPORT_TIMEOUT_MS = 60_000;
+
+/**
+ * A Google Search-grounded answer, as plain text. Free-tier keys have no
+ * grounding quota at all (every model 429s — checked 2026-10-20), so callers
+ * must treat a failure here as "skip this source", not as the job failing.
+ *
+ * Deliberately NOT through withModelFallback: grounding has its own quota,
+ * and a grounding 429 reported there would put the model into the
+ * daily-quota cooldown that customer replies share — one import on a free
+ * key would knock out WhatsApp replies on that model until midnight.
+ */
+export async function searchWeb(prompt: string): Promise<string> {
+  const body = { contents: [{ role: "user", parts: [{ text: prompt }] }], tools: [{ google_search: {} }] };
+  let lastError: unknown;
+  for (const model of config.gemini.replyModels.slice(0, 2)) {
+    try {
+      return textOf(model, await generate(model, body, IMPORT_TIMEOUT_MS), "web search");
+    } catch (err) {
+      lastError = err;
+      // Every model shares the same (missing) grounding quota — don't bother with the next one.
+      if (err instanceof GeminiError && (err.kind === "quota_exhausted" || err.kind === "rate_limited" || err.kind === "auth" || err.kind === "billing")) break;
+    }
+  }
+  throw lastError;
+}
+
+/** One call constrained to `schema` (Gemini's responseSchema format), parsed. */
+export async function extractStructured<T>(prompt: string, schema: object, task: string): Promise<T> {
+  const body = {
+    contents: [{ role: "user", parts: [{ text: prompt }] }],
+    generationConfig: { responseMimeType: "application/json", responseSchema: schema, temperature: 0.1 },
+  };
+  return withModelFallback(config.gemini.replyModels, task, async (model) => {
+    const text = textOf(model, await generate(model, body, IMPORT_TIMEOUT_MS), task);
+    try {
+      return JSON.parse(text) as T;
+    } catch {
+      throw new GeminiError("bad_output", model, `${task} returned invalid JSON: ${text.slice(0, 200)}`);
+    }
+  });
+}
+
 export async function embedText(text: string): Promise<number[]> {
   // Single model on purpose — see config.gemini.embeddingModel. Still typed,
   // so a key/billing problem surfaces the same way as for replies.

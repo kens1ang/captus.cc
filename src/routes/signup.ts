@@ -3,6 +3,7 @@ import { IANAZone } from "luxon";
 import { verifyClerkSession } from "../lib/clerkAuth.js";
 import { getClerkUserEmail } from "../lib/clerkClient.js";
 import { getUserByClerkId, createTenantForNewUser } from "../db/users.js";
+import { normalizeUrls, startImport } from "../lib/businessImport.js";
 
 // Self-serve signup: someone signs up with an email (Clerk), names their
 // business, and gets their own tenant straight away — no WhatsApp number
@@ -11,7 +12,7 @@ import { getUserByClerkId, createTenantForNewUser } from "../db/users.js";
 // new signup sat on "ask your Captus contact to link you" until an admin
 // ran link-user by hand.
 export async function signupRoutes(app: FastifyInstance) {
-  app.post<{ Body: { businessName?: string; timezone?: string } }>("/api/signup", async (req, reply) => {
+  app.post<{ Body: { businessName?: string; timezone?: string; urls?: unknown } }>("/api/signup", async (req, reply) => {
     const clerkUserId = await verifyClerkSession(req, reply);
     if (!clerkUserId) return reply;
 
@@ -24,6 +25,19 @@ export async function signupRoutes(app: FastifyInstance) {
     const tz = req.body?.timezone;
     const timezone = tz && IANAZone.isValidZone(tz) ? tz : undefined;
 
+    // Optional website / social links: checked up front so a typo is fixed
+    // before the business exists, then imported in the background (they
+    // land on Knowledge while it runs — see lib/businessImport.ts).
+    let urls: string[] = [];
+    const rawUrls = req.body?.urls;
+    if (Array.isArray(rawUrls) ? rawUrls.some((u) => String(u).trim()) : String(rawUrls ?? "").trim()) {
+      try {
+        urls = normalizeUrls(rawUrls);
+      } catch (err) {
+        return reply.code(400).send({ error: (err as Error).message });
+      }
+    }
+
     if (await getUserByClerkId(clerkUserId)) {
       return reply.code(409).send({ error: "This account already has a business" });
     }
@@ -32,6 +46,10 @@ export async function signupRoutes(app: FastifyInstance) {
 
     const created = await createTenantForNewUser({ clerkUserId, email, businessName, timezone });
     if (!created) return reply.code(409).send({ error: "This account already has a business" });
-    return reply.code(201).send(created);
+    if (urls.length) {
+      // The business exists either way — a failed start just means they use the import card instead.
+      await startImport(created.tenantId, urls).catch((err) => req.log.warn({ err }, "Couldn't start the signup import"));
+    }
+    return reply.code(201).send({ ...created, importStarted: urls.length > 0 });
   });
 }

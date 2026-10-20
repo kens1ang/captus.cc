@@ -47,6 +47,8 @@ export const E2E_ENV: Record<string, string> = {
   GOOGLE_CLIENT_SECRET: "unused",
   GOOGLE_REDIRECT_URI: "http://localhost/unused",
   MESSAGE_DEBOUNCE_MS: "3000",
+  // The website-import scenarios serve their fixture site on localhost.
+  IMPORT_ALLOW_PRIVATE_HOSTS: "1",
 };
 Object.assign(process.env, E2E_ENV);
 
