@@ -44,7 +44,12 @@ function TestChatBody({ onClose }: { onClose?: () => void }) {
   const [pending, setPending] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => bottomRef.current?.scrollIntoView({ block: "end" }), [entries, pending]);
+  // Block body on purpose: newer browsers return a Promise from
+  // scrollIntoView, and an effect that returns a non-function crashes the
+  // page when React tries to run it as the cleanup.
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ block: "end" });
+  }, [entries, pending]);
 
   async function send(text: string) {
     const trimmed = text.trim();

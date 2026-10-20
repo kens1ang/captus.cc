@@ -1,6 +1,7 @@
 "use server";
 
 import { redirect } from "next/navigation";
+import { revalidatePath } from "next/cache";
 import { backendFetch } from "@/lib/backend";
 import { attempt, fail, type ActionState } from "@/lib/actionState";
 
@@ -14,5 +15,8 @@ export async function createBusiness(_prev: ActionState, formData: FormData): Pr
     await backendFetch("/api/signup", { method: "POST", body: JSON.stringify({ businessName, timezone }) });
   });
   if (!result?.ok) return result;
+  // The root layout is what showed the "create your business" screen, and a
+  // redirect alone reuses it as-is — re-render it so the app shell appears.
+  revalidatePath("/", "layout");
   redirect("/knowledge/profile");
 }
