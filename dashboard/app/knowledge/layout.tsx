@@ -1,16 +1,18 @@
 import { SubNav } from "@/components/shell/SubNav";
 import { TestChatPanel } from "@/components/TestChatPanel";
+import { isCollapsed, SUBNAV_COOKIE } from "@/lib/panelPrefs";
 import { buildSetupSteps, getBusinessHours, getBusinessInfo, getDocuments, getGoogleStatus, getServices } from "@/lib/data";
 
 export const metadata = { title: "Knowledge" };
 
 export default async function KnowledgeLayout({ children }: LayoutProps<"/knowledge">) {
-  const [info, hours, documents, google, services] = await Promise.all([
+  const [info, hours, documents, google, services, subnavCollapsed] = await Promise.all([
     getBusinessInfo(),
     getBusinessHours(),
     getDocuments(),
     getGoogleStatus(),
     getServices(),
+    isCollapsed(SUBNAV_COOKIE),
   ]);
   const done = Object.fromEntries(buildSetupSteps({ info, hours, documents, google, services }).map((s) => [s.key, s.done]));
 
@@ -18,6 +20,7 @@ export default async function KnowledgeLayout({ children }: LayoutProps<"/knowle
     <div className="flex min-h-dvh flex-col md:flex-row">
       <SubNav
         title="Knowledge"
+        defaultCollapsed={subnavCollapsed}
         items={[
           { href: "/knowledge", label: "Overview" },
           { href: "/knowledge/profile", label: "Business profile", done: done.profile, group: "Your business" },

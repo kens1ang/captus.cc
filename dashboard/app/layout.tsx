@@ -6,6 +6,7 @@ import { BackendError } from "@/lib/backend";
 import { getConversations, getMe, needsAttention as isNeedsAttention, type Me } from "@/lib/data";
 import { Sidebar } from "@/components/shell/Sidebar";
 import { CreateBusiness } from "@/components/CreateBusiness";
+import { isCollapsed, SIDEBAR_COOKIE } from "@/lib/panelPrefs";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -19,7 +20,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: { default: "Captus", template: "%s · Captus" },
+  title: { default: "Captus", template: "%s" },
   description: "Your WhatsApp AI assistant — conversations, knowledge and bookings",
   other: {
     "facebook-domain-verification": "25g1sfi0mh6absoik6tm6k8r6yoisk",
@@ -42,12 +43,16 @@ async function Shell({ children }: { children: React.ReactNode }) {
     .then((list) => list.filter((c) => isNeedsAttention(c.status)).length)
     .catch(() => 0);
 
+  const sidebarCollapsed = await isCollapsed(SIDEBAR_COOKIE);
+
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
       <Sidebar
         businessName={me.businessName}
         needsAttention={needsAttention}
         isAdmin={me.isAdmin}
+        defaultCollapsed={sidebarCollapsed}
+        compactFooter={<UserButton />}
         footer={
           <div className="flex items-center gap-2.5 px-1">
             <UserButton />

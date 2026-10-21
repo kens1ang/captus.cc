@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
+import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type PointerEvent as ReactPointerEvent } from "react";
 import { CalendarCheck, FileText, Loader2, MessageCircle, RotateCcw, Search, SendHorizontal, TriangleAlert, X } from "lucide-react";
 import { resetTestChat, sendTestMessage, type TestChatAction, type TestChatTurn } from "@/app/knowledge/testChatActions";
 import { cx } from "@/components/ui";
@@ -197,11 +197,77 @@ function TestChatBody({ onClose }: { onClose?: () => void }) {
 }
 
 /** Right-hand column on wide screens; a floating button + slide-over panel on smaller ones. */
+const WIDTH_KEY = "captus.testChatWidth";
+const MIN_WIDTH = 300;
+const DEFAULT_WIDTH = 360;
+
+function loadWidth(): number {
+  try {
+    const w = Number(localStorage.getItem(WIDTH_KEY));
+    return w >= MIN_WIDTH ? w : DEFAULT_WIDTH;
+  } catch {
+    return DEFAULT_WIDTH;
+  }
+}
+
+/** Widest the panel may get: leave at least half the window for the page beside it. */
+function maxWidth(): number {
+  return Math.max(MIN_WIDTH, Math.floor(window.innerWidth / 2));
+}
+
 export function TestChatPanel() {
   const [open, setOpen] = useState(false);
+  const [width, setWidth] = useState(() => Math.min(loadWidth(), maxWidth()));
+  const [dragging, setDragging] = useState(false);
+
+  // Drag the left edge to resize; double-click it to reset.
+  const startDrag = (e: ReactPointerEvent) => {
+    e.preventDefault();
+    const startX = e.clientX;
+    const startWidth = width;
+    let latest = startWidth;
+    setDragging(true);
+    const onMove = (ev: PointerEvent) => {
+      latest = Math.min(maxWidth(), Math.max(MIN_WIDTH, startWidth + startX - ev.clientX));
+      setWidth(latest);
+    };
+    const onUp = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      setDragging(false);
+      try {
+        localStorage.setItem(WIDTH_KEY, String(latest));
+      } catch {
+        // storage blocked — the width just won't be remembered
+      }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  };
+  const resetWidth = () => {
+    setWidth(DEFAULT_WIDTH);
+    try {
+      localStorage.removeItem(WIDTH_KEY);
+    } catch {}
+  };
+
   return (
     <>
-      <aside className="sticky top-0 hidden h-dvh w-[360px] shrink-0 border-l border-line xl:block">
+      <aside className="sticky top-0 hidden h-dvh shrink-0 border-l border-line xl:block" style={{ width }}>
+        <div
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="Resize test chat"
+          title="Drag to resize · double-click to reset"
+          onPointerDown={startDrag}
+          onDoubleClick={resetWidth}
+          className={cx(
+            "absolute inset-y-0 -left-1 z-10 w-2 cursor-col-resize transition-colors hover:bg-brand/30",
+            dragging && "bg-brand/40",
+          )}
+        />
+        {/* Keep text from being selected and iframes/inputs from stealing the pointer mid-drag. */}
+        {dragging && <div className="fixed inset-0 z-50 cursor-col-resize select-none" />}
         <TestChatBody />
       </aside>
 
