@@ -20,7 +20,18 @@ export function verifyWebhookSignature(rawBody: Buffer, signatureHeader: string 
   return crypto.timingSafeEqual(expectedBuf, providedBuf);
 }
 
-export async function sendTextMessage(phoneNumberId: string, to: string, body: string): Promise<void> {
+/** WhatsApp's id for a message we just sent — what its later delivered/read/failed status updates refer to. */
+async function sentMessageId(res: Response): Promise<string | undefined> {
+  try {
+    const body = (await res.json()) as { messages?: Array<{ id?: string }> };
+    return body.messages?.[0]?.id;
+  } catch {
+    return undefined; // sent fine, just no id to track receipts by
+  }
+}
+
+/** Returns the sent message's WhatsApp id (for read receipts), when Meta gives one. */
+export async function sendTextMessage(phoneNumberId: string, to: string, body: string): Promise<string | undefined> {
   const url = `${GRAPH}/${phoneNumberId}/messages`;
   const res = await fetch(url, {
     method: "POST",
@@ -40,6 +51,7 @@ export async function sendTextMessage(phoneNumberId: string, to: string, body: s
     const errBody = await res.text();
     throw new Error(`WhatsApp send failed (${res.status}): ${errBody}`);
   }
+  return sentMessageId(res);
 }
 
 /**
@@ -82,7 +94,7 @@ export async function sendTemplateMessage(
   templateName: string,
   languageCode: string,
   bodyParams: string[],
-): Promise<void> {
+): Promise<string | undefined> {
   const url = `${GRAPH}/${phoneNumberId}/messages`;
   const res = await fetch(url, {
     method: "POST",
@@ -106,6 +118,7 @@ export async function sendTemplateMessage(
     const errBody = await res.text();
     throw new Error(`WhatsApp template send failed (${res.status}): ${errBody}`);
   }
+  return sentMessageId(res);
 }
 
 /** Downloads a media attachment (voice note, image, etc.) by its WhatsApp media id. */

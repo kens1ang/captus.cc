@@ -17,6 +17,8 @@ export interface InboundMessageJob {
   from: string;
   messageId: string;
   receivedAt: string;
+  /** When the customer sent it (Meta's timestamp) — compared with when they read our last reply. Absent on jobs queued before this field existed. */
+  sentAt?: string;
   kind: "text" | "audio" | "image" | "document" | "unsupported";
   text?: string;
   mediaId?: string;
@@ -42,7 +44,7 @@ export const inboundQueue = new Queue<InboundMessageJob>(INBOUND_MESSAGE_QUEUE, 
 });
 
 // --- Queue 2: the debounced "actually reply now" trigger, one delayed job
-// per contact (jobId = wa_number). Each new inbound message removes and
+// per conversation (jobId = business + customer number). Each new inbound message removes and
 // re-adds this job, so only the one that survives the delay untouched fires. ---
 export const REPLY_DEBOUNCE_QUEUE = "reply-debounce";
 
@@ -56,6 +58,31 @@ export const replyDebounceQueue = new Queue<ReplyDebounceJob>(REPLY_DEBOUNCE_QUE
   connection,
   defaultJobOptions: {
     attempts: 3,
+    backoff: { type: "exponential", delay: 2000 },
+    removeOnComplete: 1000,
+    removeOnFail: 1000,
+  },
+});
+
+// --- Queue 2b: delivery receipts (delivered / read / failed) for messages we
+// sent. One job per receipt (jobId = message id + status), so Meta
+// redelivering a webhook is a no-op. A "failed" receipt can beat the
+// reply's own database row by a moment, hence a few quick retries. ---
+export const MESSAGE_STATUS_QUEUE = "message-status";
+
+export interface MessageStatusJob {
+  waPhoneNumberId: string;
+  waMessageId: string;
+  status: "delivered" | "read" | "failed";
+  at: string;
+  /** Failed only: Meta's error, e.g. "Re-engagement message". */
+  reason?: string;
+}
+
+export const messageStatusQueue = new Queue<MessageStatusJob>(MESSAGE_STATUS_QUEUE, {
+  connection,
+  defaultJobOptions: {
+    attempts: 5,
     backoff: { type: "exponential", delay: 2000 },
     removeOnComplete: 1000,
     removeOnFail: 1000,

@@ -142,6 +142,10 @@ export const config = {
   // burst of separate messages ("hey" / "I wanted to ask" / "about pricing")
   // gets answered as one coherent turn instead of three disjointed ones.
   messageDebounceMs: Number(process.env.MESSAGE_DEBOUNCE_MS ?? 7000),
+  // ...but never wait longer than this after the first unanswered message,
+  // so someone who keeps typing every few seconds still hears back. (A voice
+  // note or photo still being read is the exception — that's always waited for.)
+  messageMaxWaitMs: Number(process.env.MESSAGE_MAX_WAIT_MS ?? 20000),
   // Guards against reply loops/spam bursts (a "get your number banned" class
   // of bug) regardless of cause — max inbound messages per contact per window.
   rateLimit: {

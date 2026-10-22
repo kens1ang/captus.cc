@@ -1,7 +1,7 @@
 import type { FastifyInstance } from "fastify";
 import { config } from "../lib/config.js";
 import { verifyWebhookSignature } from "../lib/whatsapp.js";
-import { inboundQueue } from "../lib/queue.js";
+import { inboundQueue, messageStatusQueue } from "../lib/queue.js";
 
 interface MetaWebhookBody {
   entry?: Array<{
@@ -18,6 +18,14 @@ interface MetaWebhookBody {
           audio?: { id: string; mime_type: string };
           image?: { id: string; mime_type: string; caption?: string };
           document?: { id: string; mime_type: string; filename?: string; caption?: string };
+        }>;
+        // Receipts for messages WE sent: sent → delivered → read, or failed.
+        statuses?: Array<{
+          id: string;
+          status: string;
+          timestamp: string;
+          recipient_id?: string;
+          errors?: Array<{ code?: number; title?: string; message?: string; error_data?: { details?: string } }>;
         }>;
       };
     }>;
@@ -58,12 +66,31 @@ export async function webhookRoutes(app: FastifyInstance) {
     const phoneNumberId = value?.metadata?.phone_number_id;
     const displayPhoneNumber = value?.metadata?.display_phone_number;
     const messages = value?.messages ?? [];
+    const statuses = value?.statuses ?? [];
 
-    if (messages.length === 0) return;
+    if (messages.length === 0 && statuses.length === 0) return;
 
     if (!phoneNumberId) {
       req.log.warn("Inbound webhook missing phone_number_id — skipping");
       return;
+    }
+
+    for (const s of statuses) {
+      // "sent" only means Meta's servers have it — nothing to act on.
+      if (s.status !== "delivered" && s.status !== "read" && s.status !== "failed") continue;
+      const err = s.errors?.[0];
+      await messageStatusQueue.add(
+        "status",
+        {
+          waPhoneNumberId: phoneNumberId,
+          waMessageId: s.id,
+          status: s.status,
+          at: new Date(Number(s.timestamp) * 1000 || Date.now()).toISOString(),
+          reason: err ? (err.error_data?.details ?? err.title ?? err.message ?? `error ${err.code}`) : undefined,
+        },
+        // BullMQ ids can't contain ":".
+        { jobId: `st_${s.id}_${s.status}`.replace(/:/g, "_") },
+      );
     }
 
     // Deliberately NO database access from here on. Meta already has its
@@ -92,6 +119,7 @@ export async function webhookRoutes(app: FastifyInstance) {
         from: message.from,
         messageId: message.id,
         receivedAt: new Date().toISOString(),
+        sentAt: new Date(Number(message.timestamp) * 1000 || Date.now()).toISOString(),
       };
 
       // Stage 2 idempotency: Meta redelivers webhooks it didn't get a fast ack

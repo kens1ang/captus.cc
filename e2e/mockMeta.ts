@@ -12,12 +12,15 @@ export interface Outbound {
   text?: string;
   document?: { link: string; filename: string; caption?: string };
   template?: { name: string };
+  /** The wamid handed back — what status webhooks (delivered/read/failed) refer to. */
+  id?: string;
   at: number;
 }
 
 export class MockMeta {
   outbound: Outbound[] = [];
   private media = new Map<string, { data: Buffer; mime: string }>();
+  private mediaDelays = new Map<string, number>();
   private failures = new Map<string, { status: number; remaining: number }>();
   private beforeSend = new Map<string, () => Promise<void>>();
   private server?: http.Server;
@@ -32,6 +35,11 @@ export class MockMeta {
 
   addMedia(id: string, data: Buffer, mime: string): void {
     this.media.set(id, { data, mime });
+  }
+
+  /** Downloading media `id` takes `ms` — a big voice note on a slow connection. */
+  delayMedia(id: string, ms: number): void {
+    this.mediaDelays.set(id, ms);
   }
 
   /** The next `times` sends to `to` fail with `status` (Meta-side rejection / outage). */
@@ -85,6 +93,8 @@ export class MockMeta {
     if (req.method === "GET" && parts[0] === "media") {
       const m = this.media.get(parts[1]);
       if (!m) return this.json(res, 404, { error: "no such media" });
+      const delay = this.mediaDelays.get(parts[1]);
+      if (delay) await new Promise((r) => setTimeout(r, delay));
       res.writeHead(200, { "Content-Type": m.mime });
       return res.end(m.data);
     }
@@ -115,12 +125,13 @@ export class MockMeta {
         fail.remaining--;
         return this.json(res, fail.status, { error: { message: "mock: injected send failure", code: 131000 } });
       }
-      const o: Outbound = { phoneNumberId, to: payload.to, type: payload.type, at: Date.now() };
+      const id = `wamid.mock${Date.now()}.${++this.seq}`;
+      const o: Outbound = { phoneNumberId, to: payload.to, type: payload.type, id, at: Date.now() };
       if (payload.type === "text") o.text = payload.text?.body;
       if (payload.type === "document") o.document = payload.document;
       if (payload.type === "template") o.template = { name: payload.template?.name };
       this.outbound.push(o);
-      return this.json(res, 200, { messaging_product: "whatsapp", contacts: [{ wa_id: payload.to }], messages: [{ id: `wamid.mock${++this.seq}` }] });
+      return this.json(res, 200, { messaging_product: "whatsapp", contacts: [{ wa_id: payload.to }], messages: [{ id }] });
     }
 
     this.json(res, 404, { error: { message: `mock: unhandled ${req.method} ${url.pathname}` } });

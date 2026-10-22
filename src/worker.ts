@@ -5,10 +5,12 @@ import {
   INBOUND_MESSAGE_QUEUE,
   REPLY_DEBOUNCE_QUEUE,
   replyDebounceQueue,
+  MESSAGE_STATUS_QUEUE,
   REMINDER_QUEUE,
   BUSINESS_IMPORT_QUEUE,
   type InboundMessageJob,
   type ReplyDebounceJob,
+  type MessageStatusJob,
   type ReminderJob,
   type BusinessImportJob,
 } from "./lib/queue.js";
@@ -26,7 +28,7 @@ import {
 } from "./lib/gemini.js";
 import { AllModelsFailedError, GeminiError, isTransientFailure } from "./lib/llmFallback.js";
 import { alertOperator } from "./lib/opsAlert.js";
-import { buildBookingTools, executeBookingTool, BOOKING_TOOL_NAMES } from "./lib/bookingTools.js";
+import { buildBookingTools, executeBookingTool, BOOKING_TOOL_NAMES, BOOKING_CHANGE_TOOL_NAMES } from "./lib/bookingTools.js";
 import { buildDocumentTools, executeDocumentTool, DOCUMENT_TOOL_NAMES } from "./lib/documentTools.js";
 import { REMINDER_TEMPLATE_NAME, REMINDER_TEMPLATE_LANGUAGE, reminderBodyParams, reminderPlainText, restoreReminders } from "./lib/bookingReminders.js";
 import type { ToolCall } from "./lib/gemini.js";
@@ -38,6 +40,8 @@ import {
   getConversation,
   getConversationMemory,
   setConversationStatus,
+  getLastReply,
+  recordDeliveryStatus,
 } from "./db/conversations.js";
 import { maybeUpdateConversationSummary, MEMORY_KEEP_RECENT } from "./lib/conversationMemory.js";
 import { loadBusinessContext, buildReplySystemPrompt } from "./lib/replyContext.js";
@@ -55,27 +59,92 @@ const HISTORY_LIMIT = MEMORY_KEEP_RECENT;
 const INBOUND_CONCURRENCY = 10;
 const REPLY_CONCURRENCY = 8;
 
-function bufferKey(from: string): string {
-  return `msgbuffer:${from}`;
+// Everything per-conversation in Redis (buffer, debounce timer, reply lock,
+// rate limit) is keyed by business + customer. Keyed by the customer's
+// number alone, someone messaging two Captus businesses at once would have
+// had both businesses' messages buffered together and answered as one.
+function convKey(tenantId: string, from: string): string {
+  return `${tenantId}_${from}`;
+}
+
+function bufferKey(tenantId: string, from: string): string {
+  return `msgbuffer:${convKey(tenantId, from)}`;
 }
 
 // BullMQ rejects a purely-numeric jobId (reserved for its own auto-increment
-// ids) and rejects ":" (used internally as a Redis key delimiter) — phone
-// numbers are all digits, so this needs a non-numeric, colon-free prefix.
-// Stage 3 note: this is still keyed by `from` alone (not tenant+from) — fine
-// while the same customer number won't be messaging two tenants at once in
-// practice, but worth revisiting if that changes.
-function debounceJobId(from: string): string {
-  return `wa_${from}`;
+// ids) and rejects ":" (used internally as a Redis key delimiter).
+function debounceJobId(tenantId: string, from: string): string {
+  return `wa_${convKey(tenantId, from)}`;
 }
 
-function rewriteKey(from: string): string {
-  return `replyrewrites:${from}`;
+function rewriteKey(tenantId: string, from: string): string {
+  return `replyrewrites:${convKey(tenantId, from)}`;
 }
 
 interface BufferedMessage {
-  text: string;
   messageId: string;
+  /** Empty while `pending`. */
+  text: string;
+  /** When we received it (ms). The cap on how long a reply waits counts from the oldest one. */
+  at: number;
+  /** When the customer sent it (ms, Meta's clock) — compared with when they read our last reply. */
+  sentAt: number;
+  /**
+   * A voice note / photo / document still being transcribed or read. Holds
+   * its place in the buffer (so it's answered in the order it was sent) and
+   * holds the reply back until it's ready — otherwise a text sent right
+   * after a voice note got answered first, and the voice note separately.
+   */
+  pending?: boolean;
+}
+
+// Media that's still "being read" after this long is assumed lost (its job
+// died for good — the inbound job's whole retry runway is ~4 minutes): the
+// reply stops waiting for it.
+const PENDING_MAX_MS = 5 * 60_000;
+// While waiting on media, re-check this often. Only a safety net: finishing
+// the media schedules the reply itself.
+const PENDING_RECHECK_MS = 30_000;
+
+// Atomic find-by-messageId on the buffer list, since a reply finishing at
+// the same moment may be removing other entries. ARGV: messageId, entry
+// JSON, mode — "add" (append unless already there), "set" (replace, or
+// append), "dropPending" (remove it, only if still a placeholder).
+const PUT_BUFFERED = `
+local items = redis.call("lrange", KEYS[1], 0, -1)
+for i, raw in ipairs(items) do
+  local ok, m = pcall(cjson.decode, raw)
+  if ok and m.messageId == ARGV[1] then
+    if ARGV[3] == "set" then
+      redis.call("lset", KEYS[1], i - 1, ARGV[2])
+    elseif ARGV[3] == "dropPending" and m.pending then
+      redis.call("lrem", KEYS[1], 1, raw)
+    end
+    return 1
+  end
+end
+if ARGV[3] ~= "dropPending" then redis.call("rpush", KEYS[1], ARGV[2]) end
+return 0`;
+
+async function putBuffered(tenantId: string, from: string, entry: BufferedMessage, mode: "add" | "set" | "dropPending"): Promise<void> {
+  await connection.eval(PUT_BUFFERED, 1, bufferKey(tenantId, from), entry.messageId, JSON.stringify(entry), mode);
+}
+
+function bufferEntry(job: InboundMessageJob, text: string, pending?: boolean): BufferedMessage {
+  const at = Date.parse(job.receivedAt);
+  return { messageId: job.messageId, text, at, sentAt: job.sentAt ? Date.parse(job.sentAt) : at, ...(pending && { pending }) };
+}
+
+/**
+ * A voice note / photo that won't be getting text after all (already
+ * acknowledged with an apology, or a duplicate job): stop holding the reply
+ * for it, and answer whatever else is waiting.
+ */
+async function dropPlaceholder(tenantId: string, from: string, waPhoneNumberId: string, job: InboundMessageJob): Promise<void> {
+  await putBuffered(tenantId, from, bufferEntry(job, "", true), "dropPending");
+  if ((await connection.llen(bufferKey(tenantId, from))) > 0) {
+    await scheduleDebouncedReply(tenantId, from, waPhoneNumberId, "");
+  }
 }
 
 /**
@@ -131,13 +200,13 @@ async function sendHoldingReplyAndEscalate(input: {
   conversationId: string;
   combinedText: string;
   toolCalls: LoggedToolCall[];
-  handledCount: number;
+  handled: string[];
 }): Promise<void> {
-  const { tenantId, from, waPhoneNumberId, conversationId, combinedText, toolCalls, handledCount } = input;
-  await sendTextMessage(waPhoneNumberId, from, HOLDING_REPLY);
-  await clearHandled(from, handledCount);
+  const { tenantId, from, waPhoneNumberId, conversationId, combinedText, toolCalls, handled } = input;
+  const sentId = await sendTextMessage(waPhoneNumberId, from, HOLDING_REPLY);
+  await clearHandled(tenantId, from, handled);
   await withTenant(tenantId, async (client) => {
-    await insertMessage(client, tenantId, conversationId, "out", HOLDING_REPLY, undefined, toolCalls.length ? toolCalls : undefined);
+    await insertMessage(client, tenantId, conversationId, "out", HOLDING_REPLY, sentId, toolCalls.length ? toolCalls : undefined);
     await touchConversation(client, conversationId);
     await setConversationStatus(client, conversationId, "needs_human");
   });
@@ -170,13 +239,22 @@ function shouldRetryMedia(err: unknown, job: { opts: { attempts?: number }; atte
 }
 
 /**
- * Drops the first `count` buffered messages — the ones a reply just
- * covered — keeping anything that arrived while it was being written.
- * (Deleting the whole buffer here is how a message sent mid-reply used to
- * vanish.)
+ * Removes exactly the buffered entries a reply just covered (by their raw
+ * JSON), keeping anything that arrived while it was being written and any
+ * voice note still being transcribed. (Deleting the whole buffer here is how
+ * a message sent mid-reply used to vanish.)
  */
-async function clearHandled(from: string, count: number): Promise<void> {
-  await connection.ltrim(bufferKey(from), count, -1);
+async function clearHandled(tenantId: string, from: string, handled: string[]): Promise<void> {
+  if (handled.length === 0) return;
+  const pipeline = connection.pipeline();
+  for (const raw of handled) pipeline.lrem(bufferKey(tenantId, from), 1, raw);
+  await pipeline.exec();
+}
+
+/** Whether anything is in the buffer besides `handled` — a message (or a voice note still being read) that arrived since. */
+async function hasNewMessages(tenantId: string, from: string, handled: string[]): Promise<boolean> {
+  const seen = new Set(handled);
+  return (await connection.lrange(bufferKey(tenantId, from), 0, -1)).some((raw) => !seen.has(raw));
 }
 
 // One reply per customer at a time, across every job and retry. A message
@@ -189,12 +267,24 @@ const REPLY_LOCK_RETRY_MS = 3000;
 // someone sending a steady stream of messages still hears back.
 const MAX_REWRITES = 2;
 
+function isHumanHandled(status: string): boolean {
+  return status === "needs_human" || status === "human_active";
+}
+
+// A customer message within this long of our last reply, sent before they
+// read it, means the two crossed (see UNREAD_REPLY_NOTE). Wider than that,
+// an unread reply is just an old one they never opened.
+const CROSSED_WINDOW_MS = 5 * 60_000;
+const UNREAD_REPLY_NOTE = `
+
+About the customer's latest message(s): they sent them before they had seen your previous reply — the messages crossed, or they haven't opened yours yet. Answer what they wrote directly and completely, as if your previous reply might not have been read: don't refer back to it ("as I mentioned", "like I said above"), and if it already answered their question, give the answer again briefly instead of pointing to it.`;
+
 async function withReplyLock(job: { data: ReplyDebounceJob; id?: string }, fn: () => Promise<void>): Promise<void> {
-  const { from } = job.data;
-  const key = `replylock:${from}`;
+  const { tenantId, from } = job.data;
+  const key = `replylock:${convKey(tenantId, from)}`;
   const token = `${job.id}:${Date.now()}`;
   if (!(await connection.set(key, token, "PX", REPLY_LOCK_MS, "NX"))) {
-    await replyDebounceQueue.add("flush", job.data, { jobId: `${debounceJobId(from)}_${Date.now()}`, delay: REPLY_LOCK_RETRY_MS });
+    await replyDebounceQueue.add("flush", job.data, { jobId: `${debounceJobId(tenantId, from)}_${Date.now()}`, delay: REPLY_LOCK_RETRY_MS });
     return;
   }
   try {
@@ -206,8 +296,8 @@ async function withReplyLock(job: { data: ReplyDebounceJob; id?: string }, fn: (
 }
 
 /** Per-contact rate limit — a generic guard against reply loops/spam bursts, regardless of cause. */
-async function isRateLimited(from: string): Promise<boolean> {
-  const key = `ratelimit:${from}`;
+async function isRateLimited(tenantId: string, from: string): Promise<boolean> {
+  const key = `ratelimit:${convKey(tenantId, from)}`;
   const count = await connection.incr(key);
   if (count === 1) {
     await connection.expire(key, config.rateLimit.windowSeconds);
@@ -227,10 +317,22 @@ function looksLikeLeadIn(text: string): boolean {
   return /^(hi|hii+|hey+|hello|helo|hai|yo|one more|also|and|so|wait|btw|actually|um+|uh+|ok so)\b/i.test(t) || /(:|\.\.\.|…)$/.test(t);
 }
 
-/** Resets the debounce timer for a contact: only the flush job that survives without being reset actually replies. */
+/**
+ * Resets the debounce timer for a conversation: only the flush job that
+ * survives without being reset actually replies. Never later than
+ * messageMaxWaitMs after the oldest unanswered message, though — someone
+ * typing a message every few seconds would otherwise reset it forever.
+ */
 async function scheduleDebouncedReply(tenantId: string, from: string, waPhoneNumberId: string, latestText: string): Promise<void> {
-  const jobId = debounceJobId(from);
-  const delay = looksLikeLeadIn(latestText) ? config.messageDebounceMs * 2 : config.messageDebounceMs;
+  const wait = looksLikeLeadIn(latestText) ? config.messageDebounceMs * 2 : config.messageDebounceMs;
+  const oldest = await connection.lindex(bufferKey(tenantId, from), 0);
+  const firstAt = oldest ? ((JSON.parse(oldest) as BufferedMessage).at ?? Date.now()) : Date.now();
+  const delay = Math.max(0, Math.min(wait, firstAt + config.messageMaxWaitMs - Date.now()));
+  await scheduleFlush(debounceJobId(tenantId, from), { tenantId, from, waPhoneNumberId }, delay);
+}
+
+/** (Re)schedules the flush job with this fixed id, replacing a pending one. */
+async function scheduleFlush(jobId: string, data: ReplyDebounceJob, delay: number): Promise<void> {
   const existing = await replyDebounceQueue.getJob(jobId);
   if (existing) {
     // Must remove in every non-active state, not just "delayed"/"waiting" —
@@ -247,17 +349,17 @@ async function scheduleDebouncedReply(tenantId: string, from: string, waPhoneNum
       // used to be wiped from the buffer when that reply went out. Seen on
       // a real phone. Schedule a one-off flush instead; the reply in
       // progress notices the new message and leaves it to this one.
-      await replyDebounceQueue.add("flush", { tenantId, from, waPhoneNumberId }, { jobId: `${jobId}_${Date.now()}`, delay });
+      await replyDebounceQueue.add("flush", data, { jobId: `${jobId}_${Date.now()}`, delay });
       return;
     }
     await existing.remove();
   }
   try {
-    await replyDebounceQueue.add("flush", { tenantId, from, waPhoneNumberId }, { jobId, delay });
+    await replyDebounceQueue.add("flush", data, { jobId, delay });
   } catch (err) {
     // Rare race: became active between getState() and add().
-    console.warn(`[worker] debounce jobId collision for ${from}, using fallback id:`, err);
-    await replyDebounceQueue.add("flush", { tenantId, from, waPhoneNumberId }, { jobId: `${jobId}_${Date.now()}`, delay });
+    console.warn(`[worker] flush jobId collision for ${jobId}, using fallback id:`, err);
+    await replyDebounceQueue.add("flush", data, { jobId: `${jobId}_${Date.now()}`, delay });
   }
 }
 
@@ -278,7 +380,7 @@ const inboundWorker = new Worker<InboundMessageJob>(
     }
     const tenantId = tenant.id;
 
-    if (await isRateLimited(from)) {
+    if (await isRateLimited(tenantId, from)) {
       console.warn(`[worker] rate limit exceeded for ${from} (msg ${messageId}) — dropping to avoid a reply loop/spam burst`);
       return;
     }
@@ -303,6 +405,7 @@ const inboundWorker = new Worker<InboundMessageJob>(
       if (!job.data.mediaId || !job.data.mimeType) {
         throw new Error("audio job missing mediaId/mimeType");
       }
+      await putBuffered(tenantId, from, bufferEntry(job.data, "", true), "add");
       console.log(`[worker] transcribing voice note from ${from} (msg ${messageId})`);
       try {
         const media = await downloadMedia(job.data.mediaId);
@@ -326,6 +429,7 @@ const inboundWorker = new Worker<InboundMessageJob>(
           "[customer sent a voice note that failed to transcribe]",
           "voice note transcription failed — needs manual review",
         );
+        await dropPlaceholder(tenantId, from, waPhoneNumberId, job.data);
         return;
       }
     } else if (kind === "image" || kind === "document") {
@@ -353,6 +457,7 @@ const inboundWorker = new Worker<InboundMessageJob>(
         return;
       }
 
+      await putBuffered(tenantId, from, bufferEntry(job.data, "", true), "add");
       console.log(`[worker] analyzing ${kind} from ${from} (msg ${messageId}, ${mimeType})`);
       try {
         const media = await downloadMedia(job.data.mediaId);
@@ -382,6 +487,7 @@ const inboundWorker = new Worker<InboundMessageJob>(
           `[customer sent a ${label} that couldn't be analyzed]`,
           `${kind} analysis failed — needs manual review`,
         );
+        await dropPlaceholder(tenantId, from, waPhoneNumberId, job.data);
         return;
       }
     } else {
@@ -396,12 +502,20 @@ const inboundWorker = new Worker<InboundMessageJob>(
       return result.inserted;
     });
     if (!inserted) {
-      console.log(`[worker] duplicate job for message ${messageId} — already recorded, skipping buffer/schedule`);
+      console.log(`[worker] duplicate job for message ${messageId} — already recorded, skipping buffer`);
+      await dropPlaceholder(tenantId, from, waPhoneNumberId, job.data);
       return;
     }
 
-    const buffered: BufferedMessage = { text, messageId };
-    await connection.rpush(bufferKey(from), JSON.stringify(buffered));
+    // Replaces a voice note's / photo's placeholder in place, keeping its spot.
+    await putBuffered(tenantId, from, bufferEntry(job.data, text), "set");
+    if (kind !== "text") {
+      // The "still waiting on media" recheck (writeReply) isn't needed any
+      // more — and firing later, it would skip the debounce for whatever the
+      // customer sends next. If other media is still pending, the next flush
+      // sets it up again.
+      await replyDebounceQueue.remove(`${debounceJobId(tenantId, from)}_media`).catch(() => {});
+    }
 
     await scheduleDebouncedReply(tenantId, from, waPhoneNumberId, text);
   },
@@ -429,10 +543,29 @@ async function writeReply(job: Job<ReplyDebounceJob>): Promise<void> {
   // so a retry after a transient failure (e.g. Gemini 503) re-reads the
   // same buffered messages instead of finding an empty list and silently
   // dropping the reply.
-  const rawBuffered = await connection.lrange(bufferKey(from), 0, -1);
-  if (rawBuffered.length === 0) return; // nothing buffered (shouldn't normally happen)
+  const startedAt = Date.now();
+  const entries = (await connection.lrange(bufferKey(tenantId, from), 0, -1)).map((raw) => ({ raw, msg: JSON.parse(raw) as BufferedMessage }));
+  if (entries.length === 0) return; // nothing buffered (an earlier flush already answered it)
 
-  const buffered: BufferedMessage[] = rawBuffered.map((raw) => JSON.parse(raw));
+  // A voice note / photo still being read: wait for it, so it's answered
+  // together with whatever was sent around it. Finishing it reschedules the
+  // reply; this recheck only matters if its job dies without doing so.
+  const stillReading = entries.filter((e) => e.msg.pending && startedAt - e.msg.at < PENDING_MAX_MS);
+  if (stillReading.length > 0) {
+    console.log(`[worker] ${from} has ${stillReading.length} voice note/file(s) still being read — holding the reply`);
+    await scheduleFlush(`${debounceJobId(tenantId, from)}_media`, job.data, PENDING_RECHECK_MS);
+    return;
+  }
+  const lost = entries.filter((e) => e.msg.pending);
+  if (lost.length > 0) console.warn(`[worker] gave up waiting on ${lost.length} voice note/file(s) from ${from} — replying without them`);
+
+  // Everything this reply covers — `lost` placeholders included, so they're cleared with it.
+  const handled = entries.map((e) => e.raw);
+  const buffered = entries.filter((e) => !e.msg.pending).map((e) => e.msg);
+  if (buffered.length === 0) {
+    await clearHandled(tenantId, from, handled);
+    return;
+  }
   const lastMessageId = buffered[buffered.length - 1].messageId;
   const combinedText = buffered.map((b) => b.text).join("\n");
   console.log(`[worker] flushing ${buffered.length} buffered message(s) from ${from}: "${combinedText}"`);
@@ -460,7 +593,7 @@ async function writeReply(job: Job<ReplyDebounceJob>): Promise<void> {
     // next, perfectly answerable question while waiting for staff (it
     // used to — found by the e2e harness).
     const conversation = await getConversation(client, conversationId);
-    if (conversation && (conversation.status === "needs_human" || conversation.status === "human_active")) {
+    if (conversation && isHumanHandled(conversation.status)) {
       return { skip: true as const, conversationId };
     }
 
@@ -473,16 +606,17 @@ async function writeReply(job: Job<ReplyDebounceJob>): Promise<void> {
     const { summary, summaryThroughMessageAt } = await getConversationMemory(client, conversationId);
     const history = await getReplyHistory(client, conversationId, HISTORY_LIMIT, summaryThroughMessageAt);
     const context = await loadBusinessContext(client);
-    return { skip: false as const, conversationId, history, context, customerMemory: summary };
+    const lastReply = await getLastReply(client, conversationId);
+    return { skip: false as const, conversationId, history, context, customerMemory: summary, lastReply };
   });
 
   if (convoState.skip) {
     console.log(`[worker] conversation with ${from} is human-handled — skipping auto-reply`);
-    await clearHandled(from, buffered.length); // so they don't pile up; the human sees the raw messages in the dashboard
+    await clearHandled(tenantId, from, handled); // so they don't pile up; the human sees the raw messages in the dashboard
     return;
   }
 
-  const { conversationId, history, context, customerMemory } = convoState;
+  const { conversationId, history, context, customerMemory, lastReply } = convoState;
   const { services, documents } = context;
 
   // Show typing as soon as we know we're actually going to reply (not
@@ -491,7 +625,16 @@ async function writeReply(job: Job<ReplyDebounceJob>): Promise<void> {
 
   // The combined buffered text is a better intent signal for the FAQ
   // lookup than any single fragment.
-  const systemPrompt = await buildReplySystemPrompt(tenant, context, combinedText, customerMemory, from);
+  let systemPrompt = await buildReplySystemPrompt(tenant, context, combinedText, customerMemory, from);
+
+  // The customer wrote this before they'd seen our last reply — the two
+  // crossed, or ours is still unopened. Left alone, the model assumes they
+  // read it and answers "as I mentioned above…" to someone who didn't.
+  const firstSentAt = buffered[0].sentAt;
+  if (lastReply && Math.abs(firstSentAt - lastReply.sentAt.getTime()) < CROSSED_WINDOW_MS && !(lastReply.readAt && lastReply.readAt.getTime() <= firstSentAt)) {
+    console.log(`[worker] ${from} wrote before reading the last reply — telling the model`);
+    systemPrompt += UNREAD_REPLY_NOTE;
+  }
 
   // The messages this reply answers always go last. History is ordered by
   // when rows were saved, and a message that lands while the previous reply
@@ -537,7 +680,7 @@ async function writeReply(job: Job<ReplyDebounceJob>): Promise<void> {
       throw err;
     }
     console.error(`[worker] reply for ${from} failed for good — sending holding reply and handing to a human:`, cause);
-    await sendHoldingReplyAndEscalate({ tenantId, from, waPhoneNumberId, conversationId, combinedText, toolCalls, handledCount: buffered.length });
+    await sendHoldingReplyAndEscalate({ tenantId, from, waPhoneNumberId, conversationId, combinedText, toolCalls, handled });
     return;
   }
 
@@ -545,12 +688,30 @@ async function writeReply(job: Job<ReplyDebounceJob>): Promise<void> {
   // doesn't know about it (it's the "AI answered before I finished
   // typing" case). Unless a booking tool already did something real,
   // drop it: the newer message's own flush job answers everything
-  // together, and the buffer still holds all of it.
-  if (result.toolCalls.length === 0 && (await connection.llen(bufferKey(from))) > buffered.length) {
-    const rewrites = await connection.incr(rewriteKey(from));
-    await connection.expire(rewriteKey(from), 300);
+  // together, and the buffer still holds all of it. Not once the hard
+  // cap was already up when this started, though — the customer has
+  // waited long enough; this goes out and the new messages are the next turn.
+  const oldestAt = Math.min(...buffered.map((b) => b.at));
+  const withinCap = startedAt - oldestAt < config.messageMaxWaitMs - 1000;
+  if (result.toolCalls.length === 0 && withinCap && (await hasNewMessages(tenantId, from, handled))) {
+    const rewrites = await connection.incr(rewriteKey(tenantId, from));
+    await connection.expire(rewriteKey(tenantId, from), 300);
     if (rewrites <= MAX_REWRITES) {
       console.log(`[worker] ${from} sent more while the reply was being written — rewriting it with the new message(s)`);
+      return;
+    }
+  }
+
+  // The owner replied from the dashboard (or the chat was handed over)
+  // while this was being written — that was only checked when it started.
+  // Don't talk over them. Unless a booking was just made, moved or
+  // cancelled: the customer needs to hear about that.
+  if (!result.toolCalls.some((t) => BOOKING_CHANGE_TOOL_NAMES.includes(t.name))) {
+    const latest = await withTenant(tenantId, (client) => getConversation(client, conversationId));
+    if (latest && isHumanHandled(latest.status)) {
+      console.log(`[worker] a person took over the chat with ${from} while the reply was being written — not sending it`);
+      await clearHandled(tenantId, from, handled);
+      await connection.del(rewriteKey(tenantId, from));
       return;
     }
   }
@@ -562,8 +723,9 @@ async function writeReply(job: Job<ReplyDebounceJob>): Promise<void> {
   // would then end on a "model" turn instead of "user" — Gemini rejects
   // that outright, turning one WhatsApp-side failure into a second,
   // unrelated one that eats the rest of the retry budget.
+  let sentId: string | undefined;
   try {
-    await sendTextMessage(waPhoneNumberId, from, result.reply);
+    sentId = await sendTextMessage(waPhoneNumberId, from, result.reply);
   } catch (err) {
     if (result.toolCalls.length > 0) {
       // A booking tool already made a REAL side effect this turn (a
@@ -578,7 +740,7 @@ async function writeReply(job: Job<ReplyDebounceJob>): Promise<void> {
         `[worker] booking tool(s) succeeded but confirmation send failed for ${from} — not retrying (would risk a duplicate booking):`,
         err,
       );
-      await clearHandled(from, buffered.length);
+      await clearHandled(tenantId, from, handled);
       await withTenant(tenantId, async (client) => {
         await insertMessage(client, tenantId, conversationId, "out", result.reply, undefined, result.toolCalls);
         await touchConversation(client, conversationId);
@@ -602,7 +764,7 @@ async function writeReply(job: Job<ReplyDebounceJob>): Promise<void> {
     // business, and alert the operator: a send that keeps failing is
     // usually OUR problem (expired token, number restricted by Meta).
     console.error(`[worker] WhatsApp refused every attempt to reply to ${from} — handing to a human:`, err);
-    await clearHandled(from, buffered.length);
+    await clearHandled(tenantId, from, handled);
     await withTenant(tenantId, (client) => setConversationStatus(client, conversationId, "needs_human"));
     const why = err instanceof Error ? err.message : String(err);
     await alertOperator(`sendfail:${waPhoneNumberId}`, `WhatsApp is refusing replies from number ${waPhoneNumberId} (${why.slice(0, 200)}). Check the access token and the number's status in WhatsApp Manager.`);
@@ -614,13 +776,13 @@ async function writeReply(job: Job<ReplyDebounceJob>): Promise<void> {
     }
     return;
   }
-  await clearHandled(from, buffered.length); // only once the reply has actually gone out
-  await connection.del(rewriteKey(from));
+  await clearHandled(tenantId, from, handled); // only once the reply has actually gone out
+  await connection.del(rewriteKey(tenantId, from));
 
   // Only record the reply (and any state it implies) once it's actually
   // out the door — see the comment above.
   await withTenant(tenantId, async (client) => {
-    await insertMessage(client, tenantId, conversationId, "out", result.reply, undefined, result.toolCalls);
+    await insertMessage(client, tenantId, conversationId, "out", result.reply, sentId, result.toolCalls);
     await touchConversation(client, conversationId);
     if (result.escalate) {
       await setConversationStatus(client, conversationId, result.escalateKind === "follow_up" ? "flagged" : "needs_human");
@@ -651,6 +813,49 @@ async function writeReply(job: Job<ReplyDebounceJob>): Promise<void> {
     );
   }
 }
+
+// --- Worker 2b: delivery receipts for messages we sent. "read" is what
+// writeReply checks to tell whether the customer saw its last reply before
+// writing again; "failed" (24h window closed, number blocked...) means a
+// reply we recorded as sent never reached them — flag it for the owner. ---
+const statusWorker = new Worker<MessageStatusJob>(
+  MESSAGE_STATUS_QUEUE,
+  async (job) => {
+    const { waPhoneNumberId, waMessageId, status, at, reason } = job.data;
+    const tenant = await getTenantByPhoneNumberId(waPhoneNumberId);
+    if (!tenant) return;
+    const tenantId = tenant.id;
+
+    const updated = await withTenant(tenantId, (client) => recordDeliveryStatus(client, waMessageId, status, new Date(at), reason));
+    if (!updated) {
+      // Usually a message we don't record (owner notifications). But a
+      // failure can be reported before the reply's own row is saved, a
+      // moment after the send — worth a few quick retries for that one.
+      const attemptsLeft = (job.opts.attempts ?? 1) - job.attemptsMade - 1;
+      if (status === "failed" && attemptsLeft > 0) throw new Error(`no recorded message ${waMessageId} yet for its "failed" receipt`);
+      return;
+    }
+    if (status !== "failed" || !updated.firstFailure) return;
+
+    console.warn(`[worker] WhatsApp couldn't deliver message ${waMessageId}: ${reason ?? "no reason given"}`);
+    const conversation = await withTenant(tenantId, async (client) => {
+      const c = await getConversation(client, updated.conversationId);
+      // Flagged, not handed over: if the customer writes again, the
+      // assistant can answer (that reopens the window), while the owner sees
+      // the chat under "Needs you". Never downgrades a handed-over chat.
+      if (c && c.status === "bot") await setConversationStatus(client, c.id, "flagged");
+      return c;
+    });
+    if (!conversation) return;
+    await notifyEscalation(
+      waPhoneNumberId,
+      conversation.waNumber,
+      updated.content,
+      `this reply never reached the customer on WhatsApp${reason ? ` (${reason})` : ""} — please contact them another way`,
+    );
+  },
+  { connection, concurrency: 5 },
+);
 
 // --- Worker 3: fires once per booking, LEAD_TIME_HOURS before its start
 // (scheduled by lib/bookingReminders.ts at booking time, cancelled on
@@ -685,7 +890,7 @@ const reminderWorker = new Worker<ReminderJob>(
     const formattedRange = `${start.toFormat("EEE d LLL")}, ${start.toFormat("h:mm a")} - ${end.toFormat("h:mm a")}`;
     const serviceName = booking.serviceName ?? "appointment";
 
-    await sendTemplateMessage(
+    const sentId = await sendTemplateMessage(
       tenant.whatsappPhoneNumberId,
       booking.contactWaNumber,
       REMINDER_TEMPLATE_NAME,
@@ -705,7 +910,7 @@ const reminderWorker = new Worker<ReminderJob>(
 
     if (booking.conversationId) {
       await withTenant(tenantId, async (client) => {
-        await insertMessage(client, tenantId, booking.conversationId!, "out", reminderPlainText(serviceName, formattedRange));
+        await insertMessage(client, tenantId, booking.conversationId!, "out", reminderPlainText(serviceName, formattedRange), sentId);
         await touchConversation(client, booking.conversationId!);
       });
     }
@@ -717,7 +922,7 @@ const reminderWorker = new Worker<ReminderJob>(
 // runImport records every outcome itself, so it never fails the job. ---
 const importWorker = new Worker<BusinessImportJob>(BUSINESS_IMPORT_QUEUE, (job) => runImport(job.data), { connection, concurrency: 2 });
 
-for (const w of [inboundWorker, replyWorker, reminderWorker, importWorker]) {
+for (const w of [inboundWorker, replyWorker, statusWorker, reminderWorker, importWorker]) {
   w.on("completed", (job) => console.log(`[worker] job ${job.id} completed`));
   w.on("failed", (job, err) => console.error(`[worker] job ${job?.id} failed:`, err));
 }

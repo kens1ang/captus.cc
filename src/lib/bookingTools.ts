@@ -15,6 +15,9 @@ const RESCHEDULE_APPOINTMENT = "reschedule_appointment";
 
 // So worker.ts can route a tool call to the right executor (this module vs.
 // documentTools.ts) without either module needing to know about the other.
+/** The booking tools that change something — the customer must hear about it once one has run. */
+export const BOOKING_CHANGE_TOOL_NAMES: readonly string[] = [BOOK_APPOINTMENT, CANCEL_APPOINTMENT, RESCHEDULE_APPOINTMENT];
+
 export const BOOKING_TOOL_NAMES: readonly string[] = [
   CHECK_AVAILABILITY,
   BOOK_APPOINTMENT,

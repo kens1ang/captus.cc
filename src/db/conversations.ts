@@ -123,8 +123,8 @@ export async function updateConversationSummary(
 }
 
 /**
- * Records a message. When `waMessageId` is given (inbound messages), the
- * insert is idempotent — a BullMQ retry re-running this with the same id is
+ * Records a message. When `waMessageId` is given (every inbound message, and
+ * outbound ones so their read receipts can find them), the insert is idempotent — a BullMQ retry re-running this with the same id is
  * a no-op instead of a duplicate row. Returns whether a row was actually
  * inserted, so callers can skip further side effects (buffering, sending)
  * on a detected duplicate.
@@ -241,13 +241,65 @@ export interface FullMessage {
   direction: "in" | "out";
   content: string;
   createdAt: string;
+  /** Outbound only: WhatsApp accepted it but later reported it undelivered. */
+  failedReason: string | null;
 }
 
 /** Dashboard's full thread view — unlike getRecentMessages, no limit and includes id/timestamp. */
 export async function getAllMessages(client: PoolClient, conversationId: string): Promise<FullMessage[]> {
-  const result = await client.query<{ id: string; direction: "in" | "out"; content: string; created_at: string }>(
-    `SELECT id, direction, content, created_at FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC`,
+  const result = await client.query<{ id: string; direction: "in" | "out"; content: string; created_at: string; failed_reason: string | null }>(
+    `SELECT id, direction, content, created_at,
+            CASE WHEN failed_at IS NOT NULL THEN COALESCE(failed_reason, 'not delivered') END AS failed_reason
+       FROM messages WHERE conversation_id = $1 ORDER BY created_at ASC`,
     [conversationId],
   );
-  return result.rows.map((r) => ({ id: r.id, direction: r.direction, content: r.content, createdAt: r.created_at }));
+  return result.rows.map((r) => ({ id: r.id, direction: r.direction, content: r.content, createdAt: r.created_at, failedReason: r.failed_reason }));
+}
+
+export interface LastReply {
+  sentAt: Date;
+  readAt: Date | null;
+}
+
+/** The most recent message we sent in this conversation, and whether the customer has opened it. */
+export async function getLastReply(client: PoolClient, conversationId: string): Promise<LastReply | null> {
+  const result = await client.query<{ created_at: Date; read_at: Date | null }>(
+    `SELECT created_at, read_at FROM messages WHERE conversation_id = $1 AND direction = 'out' ORDER BY created_at DESC LIMIT 1`,
+    [conversationId],
+  );
+  const row = result.rows[0];
+  return row ? { sentAt: row.created_at, readAt: row.read_at } : null;
+}
+
+export type DeliveryStatus = "delivered" | "read" | "failed";
+
+/**
+ * Applies one of Meta's status webhooks to the outbound message it's about.
+ * Receipts can arrive out of order (read before delivered) and more than
+ * once, so each timestamp is only ever set the first time. Returns null when
+ * no recorded message has this id — not saved yet, or one we don't record
+ * (owner notifications).
+ */
+export async function recordDeliveryStatus(
+  client: PoolClient,
+  waMessageId: string,
+  status: DeliveryStatus,
+  at: Date,
+  reason?: string,
+): Promise<{ conversationId: string; content: string; firstFailure: boolean } | null> {
+  const result = await client.query<{ conversation_id: string; content: string; first_failure: boolean }>(
+    `WITH prev AS (
+       SELECT id, failed_at AS prev_failed_at FROM messages WHERE wa_message_id = $1 AND direction = 'out' FOR UPDATE
+     )
+     UPDATE messages m SET
+       delivered_at = CASE WHEN $2 IN ('delivered', 'read') THEN COALESCE(m.delivered_at, $3) ELSE m.delivered_at END,
+       read_at = CASE WHEN $2 = 'read' THEN COALESCE(m.read_at, $3) ELSE m.read_at END,
+       failed_at = CASE WHEN $2 = 'failed' THEN COALESCE(m.failed_at, $3) ELSE m.failed_at END,
+       failed_reason = CASE WHEN $2 = 'failed' THEN COALESCE(m.failed_reason, $4) ELSE m.failed_reason END
+     FROM prev WHERE m.id = prev.id
+     RETURNING m.conversation_id, m.content, ($2 = 'failed' AND prev.prev_failed_at IS NULL) AS first_failure`,
+    [waMessageId, status, at, reason ?? null],
+  );
+  const row = result.rows[0];
+  return row ? { conversationId: row.conversation_id, content: row.content, firstFailure: row.first_failure } : null;
 }

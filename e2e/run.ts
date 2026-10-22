@@ -33,10 +33,11 @@ import {
   webhookBody,
   postWebhook,
   sign,
+  statusBody,
   conversationOf,
   messagesOf,
   bookingsOf,
-  type Customer,
+  Customer,
 } from "./harness.js";
 import { seed, type Seeded } from "./seed.js";
 
@@ -435,6 +436,94 @@ async function featureScenarios(s: Seeded) {
     expect(replies.length === 1, "customer got no reply");
   });
 
+  // Found reasoning about it, not on a phone: the text was buffered at once,
+  // the voice note only after its (slow) download + transcription — so the
+  // text got its own reply first and the voice note a second one.
+  await scenario(P, "Voice note then a quick text → one reply covering both", async () => {
+    mock.addMedia("voice-slow", fs.readFileSync(path.join(ROOT, "e2e/fixtures/voice-opening-hours.wav")), "audio/wav");
+    mock.delayMedia("voice-slow", 8000);
+    const c = newCustomer();
+    note("> [voice note: 'What time do you open on Sunday morning?'] (8s to download)");
+    await c.send({ type: "audio", mediaId: "voice-slow", mime: "audio/wav" });
+    await sleep(500);
+    note("> and is there parking nearby?");
+    await c.send("and is there parking nearby?");
+    await mock.waitFor(c.number, 1, 120_000);
+    await sleep(10_000); // would a second reply show up?
+    for (const r of c.replies()) note(`< ${r}`);
+    expect(c.replies().length === 1, `${c.replies().length} replies instead of 1`);
+    expect(/8/.test(c.replies()[0]), "reply doesn't answer the voice note (8am Sunday opening)");
+    expect(/parking|Telawi|Bangsar Village/i.test(c.replies()[0]), "reply doesn't answer the parking question");
+  });
+
+  // --- Receipts / crossed messages ---
+  await scenario(P, "Knows when the customer wrote before reading the last reply", async () => {
+    const unread = newCustomer();
+    await chat(unread, "What time do you close today?");
+    await chat(unread, "Is there parking nearby?");
+    const read = newCustomer();
+    await chat(read, "What time do you close today?");
+    const lastId = mock.messagesTo(read.number).filter((o) => o.type === "text").at(-1)?.id;
+    expect(lastId, "mock gave the reply no id");
+    expect((await postWebhook(statusBody(TENANT_A_PHONE_ID, lastId, read.number, "read"))) === 200, "read receipt rejected");
+    note("[customer opens the reply]");
+    await sleep(1500);
+    await chat(read, "Is there parking nearby?");
+    const log = appLogText();
+    expect(log.includes(`${unread.number} wrote before reading the last reply`), "unread reply not noticed");
+    expect(!log.includes(`${read.number} wrote before reading the last reply`), "a reply the customer had read was treated as unread");
+  });
+
+  await scenario(P, "Reply WhatsApp couldn't deliver → flagged, owner told, marked in the thread", async () => {
+    const c = newCustomer();
+    await chat(c, "What's your address?");
+    const lastId = mock.messagesTo(c.number).filter((o) => o.type === "text").at(-1)?.id;
+    expect(lastId, "mock gave the reply no id");
+    const before = mock.messagesTo(OWNER_NUMBER).length;
+    note("[WhatsApp reports the reply undelivered: 131047 Re-engagement message]");
+    await postWebhook(statusBody(TENANT_A_PHONE_ID, lastId, c.number, "failed", { code: 131047, title: "Re-engagement message" }));
+    for (let i = 0; i < 30 && (await conversationOf(TENANT_A_PHONE_ID, c.number))?.status !== "flagged"; i++) await sleep(500);
+    expect((await conversationOf(TENANT_A_PHONE_ID, c.number))?.status === "flagged", "chat not flagged for the owner");
+    const row = (await db.query(`SELECT failed_at, failed_reason FROM messages WHERE wa_message_id = $1`, [lastId])).rows[0];
+    expect(row?.failed_at && /Re-engagement/.test(row.failed_reason), "reply not marked undelivered");
+    await sleep(1000);
+    expect(mock.messagesTo(OWNER_NUMBER).slice(before).some((m) => (m.text ?? "").includes(c.number)), "owner not told");
+  });
+
+  await scenario(P, "Owner takes over while the reply is being written → assistant stays quiet", async () => {
+    const c = newCustomer();
+    const typingBefore = mock.outbound.filter((o) => o.type === "typing").length;
+    note("> Is the food halal?");
+    await c.send("Is the food halal?");
+    const deadline = Date.now() + 30_000;
+    while (mock.outbound.filter((o) => o.type === "typing").length === typingBefore && Date.now() < deadline) await sleep(50);
+    await db.query(`UPDATE conversations SET status = 'human_active' WHERE wa_number = $1`, [c.number]);
+    note("[owner replies from the dashboard while the assistant is writing]");
+    await sleep(20_000);
+    for (const r of c.replies()) note(`< ${r}`);
+    expect(c.replies().length === 0, `assistant still sent ${c.replies().length} reply(s) after the owner took over`);
+  });
+
+  await scenario(P, "Same customer messaging two businesses at once → each answers its own", async () => {
+    const a = newCustomer();
+    const b = new Customer(TENANT_B_PHONE_ID, a.number);
+    note("> (to Kopi Corner) Is there parking nearby?");
+    await a.send("Is there parking nearby?");
+    await sleep(300);
+    note("> (to Glow Salon) Is there parking nearby?");
+    await b.send("Is there parking nearby?");
+    const from = (id: string) => mock.outbound.filter((o) => o.to === a.number && o.type === "text" && o.phoneNumberId === id);
+    const deadline = Date.now() + 90_000;
+    while ((from(TENANT_A_PHONE_ID).length === 0 || from(TENANT_B_PHONE_ID).length === 0) && Date.now() < deadline) await sleep(250);
+    await sleep(5000);
+    const [ra, rb] = [from(TENANT_A_PHONE_ID), from(TENANT_B_PHONE_ID)];
+    ra.forEach((o) => note(`< (Kopi Corner) ${o.text}`));
+    rb.forEach((o) => note(`< (Glow Salon) ${o.text}`));
+    expect(ra.length === 1 && rb.length === 1, `Kopi Corner sent ${ra.length}, Glow Salon sent ${rb.length} (expected 1 each)`);
+    expect(/Telawi|Bangsar/i.test(ra[0].text ?? ""), "Kopi Corner didn't give its own parking info");
+    expect(/basement|B1|free/i.test(rb[0].text ?? ""), "Glow Salon didn't give its own parking info");
+  });
+
   // --- Memory ---
   await scenario(P, "Remembers a fact from beyond the recent-message window", async () => {
     const c = newCustomer();
@@ -607,6 +696,28 @@ async function featureScenarios(s: Seeded) {
     const r2 = await chat(newCustomer(TENANT_B_PHONE_ID), "Is there parking?");
     expect(/basement|B1|free/i.test(r2), "didn't use Glow Salon's own parking FAQ");
     expect(!/Telawi|Bangsar/i.test(r2), "gave Kopi Corner's parking info");
+  });
+
+  // Without a cap, every message resets the wait: someone sending a line
+  // every 2s never hears back until they stop.
+  await scenario(P, "Someone who keeps typing still gets a reply (cap on waiting)", async () => {
+    await restartApp({ MESSAGE_MAX_WAIT_MS: "8000", RATE_LIMIT_MAX_MESSAGES: "40" }, "app-cap.log");
+    const c = newCustomer();
+    const lines = ["ok so", "we are 6 people", "coming on saturday", "two of us are vegetarian", "one has a nut allergy", "we might bring a cake"];
+    const t0 = Date.now();
+    let sent = 0;
+    while (sent < 15 && !c.replies().length) {
+      const line = lines[sent % lines.length];
+      note(`> ${line}`);
+      await c.send(line);
+      sent++;
+      await sleep(2000);
+    }
+    const secs = Math.round((Date.now() - t0) / 1000);
+    for (const r of c.replies()) note(`< ${r}`);
+    expect(c.replies().length > 0, `no reply while the customer kept typing (${sent} messages, ${secs}s)`);
+    await restartApp({}, "app-after-cap.log");
+    return `replied after ${sent} messages / ~${secs}s, customer still typing`;
   });
 }
 

@@ -93,10 +93,10 @@ export async function dashboardRoutes(app: FastifyInstance) {
     // actually has it. Otherwise a failed send (e.g. a Meta-side rejection)
     // still shows up in the dashboard as a sent reply that the customer never
     // received. Let it throw straight to a 500 on failure; nothing written.
-    await sendTextMessage(tenant.whatsappPhoneNumberId, conversation.waNumber, text);
+    const sentId = await sendTextMessage(tenant.whatsappPhoneNumberId, conversation.waNumber, text);
 
     await withTenant(tenantId, async (client) => {
-      await insertMessage(client, tenantId, conversation.id, "out", text);
+      await insertMessage(client, tenantId, conversation.id, "out", text, sentId);
       await setConversationStatus(client, conversation.id, "human_active");
       await touchConversation(client, conversation.id);
     });

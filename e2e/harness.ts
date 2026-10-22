@@ -187,6 +187,28 @@ export function webhookBody(phoneNumberId: string, from: string, msg: InboundMes
   });
 }
 
+/** Meta's receipt for a message Captus sent: delivered / read / failed. */
+export function statusBody(phoneNumberId: string, wamid: string, recipient: string, status: "delivered" | "read" | "failed", error?: { code: number; title: string }): string {
+  return JSON.stringify({
+    object: "whatsapp_business_account",
+    entry: [
+      {
+        id: "e2e-waba",
+        changes: [
+          {
+            field: "messages",
+            value: {
+              messaging_product: "whatsapp",
+              metadata: { phone_number_id: phoneNumberId, display_phone_number: "60300000000" },
+              statuses: [{ id: wamid, status, timestamp: String(Math.floor(Date.now() / 1000)), recipient_id: recipient, ...(error && { errors: [error] }) }],
+            },
+          },
+        ],
+      },
+    ],
+  });
+}
+
 export function sign(body: string, secret = APP_SECRET): string {
   return "sha256=" + crypto.createHmac("sha256", secret).update(body).digest("hex");
 }

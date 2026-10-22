@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowLeft, Bot, Brain, UserRound } from "lucide-react";
+import { ArrowLeft, Bot, Brain, TriangleAlert, UserRound } from "lucide-react";
 import { backendFetch } from "@/lib/backend";
 import { getSettings, type ConversationStatus } from "@/lib/data";
 import { formatDate, formatPhone, formatTime } from "@/lib/formatDate";
@@ -21,6 +21,8 @@ interface FullMessage {
   direction: "in" | "out";
   content: string;
   createdAt: string;
+  /** WhatsApp accepted it but couldn't deliver it (e.g. the 24-hour window had closed). */
+  failedReason: string | null;
 }
 
 export default async function ConversationPage(props: PageProps<"/conversations/[id]">) {
@@ -103,6 +105,11 @@ export default async function ConversationPage(props: PageProps<"/conversations/
                     >
                       <p className="break-words whitespace-pre-wrap">{m.content}</p>
                       <p className="mt-1 text-right text-[10px] text-faint">{formatTime(m.createdAt, tz)}</p>
+                      {m.failedReason && (
+                        <p className="mt-1 flex items-center justify-end gap-1 text-[11px] text-danger" title={m.failedReason}>
+                          <TriangleAlert className="size-3 shrink-0" /> Not delivered
+                        </p>
+                      )}
                     </div>
                   </div>
                 ))}

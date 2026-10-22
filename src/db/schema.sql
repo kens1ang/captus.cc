@@ -73,9 +73,9 @@ CREATE TABLE IF NOT EXISTS messages (
   conversation_id uuid NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
   direction text NOT NULL CHECK (direction IN ('in', 'out')),
   content text NOT NULL,
-  -- WhatsApp message id, set for inbound messages only. Lets a BullMQ retry
-  -- re-run the whole job safely (ON CONFLICT DO NOTHING) instead of writing
-  -- a duplicate row each attempt.
+  -- WhatsApp message id. Inbound: lets a BullMQ retry re-run the whole job
+  -- safely (ON CONFLICT DO NOTHING) instead of writing a duplicate row each
+  -- attempt. Outbound: what Meta's delivered/read/failed receipts refer to.
   wa_message_id text,
   created_at timestamptz NOT NULL DEFAULT now()
 );
@@ -86,6 +86,14 @@ ALTER TABLE messages ADD COLUMN IF NOT EXISTS wa_message_id text;
 -- what you check first when a customer disputes "the bot booked me for the
 -- wrong time" — not optional logging, the actual record of what happened.
 ALTER TABLE messages ADD COLUMN IF NOT EXISTS tool_calls jsonb;
+-- Receipts for our outbound messages, from Meta's status webhooks. read_at is
+-- how the assistant knows a customer wrote before seeing its last reply; a
+-- failed delivery (window closed, number blocked) flags the chat for the
+-- owner instead of showing as "sent" forever.
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS delivered_at timestamptz;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS read_at timestamptz;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS failed_at timestamptz;
+ALTER TABLE messages ADD COLUMN IF NOT EXISTS failed_reason text;
 
 CREATE INDEX IF NOT EXISTS messages_conversation_created_idx
   ON messages (conversation_id, created_at);

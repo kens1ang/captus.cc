@@ -10,7 +10,9 @@ What's built, and a backlog of what could come next. Effort is rough: **S** ≈ 
 - Answers 24/7 from the business's knowledge base: profile, location, products, policies, FAQs, notes, and uploaded files (RAG on pgvector).
 - Refuses to invent prices, policies or promises. When it doesn't know, it says so.
 - Remembers the conversation: the last 20 messages plus anything not yet summarised; older history is summarised.
-- Debounce: a burst of quick messages gets one reply. A typing indicator shows while it works.
+- Debounce: a burst of quick messages gets one reply, but never more than 20s after the first one, so someone who keeps typing still hears back. A typing indicator shows while it works.
+- A voice note or photo is waited for, so it's answered together with any text sent around it.
+- Read receipts: if a customer writes before reading the last reply, the AI answers directly instead of saying "as I mentioned". A reply WhatsApp couldn't deliver is flagged for the owner and marked "Not delivered" in the inbox.
 - Understands voice notes, photos and documents (PDF), not just text.
 - Assistant settings: tone, languages (it replies in the customer's language), and custom instructions.
 
@@ -19,6 +21,7 @@ What's built, and a backlog of what could come next. Effort is rough: **S** ≈ 
 - **Flagged**: the bot keeps replying, but the chat is marked for the owner to check later.
 - The owner gets a WhatsApp ping. The dashboard inbox shows "Needs you", and the owner can reply manually or resume the bot.
 - If WhatsApp refuses a reply, the chat is handed to the owner rather than failing silently.
+- If the owner takes over while the AI is mid-reply, that reply is dropped (unless it just made, moved or cancelled a booking).
 
 ### Bookings
 - Customers check availability, book, reschedule, cancel and list their bookings in chat.
@@ -39,7 +42,7 @@ What's built, and a backlog of what could come next. Effort is rough: **S** ≈ 
 - Multi-tenant with Postgres Row Level Security (one business can never see another's data).
 - Checks Meta webhook signatures, ignores duplicate deliveries, filters echoes and group chats, and rate-limits each contact.
 - Gemini fallback chain across 5 models, sorted by error type (rate limit, daily quota, overload, timeout, bad key, billing…). Customers get a holding reply instead of silence, and the operator gets alerts.
-- E2E stress harness: 31 scenarios, failure injection, 50 chats arriving at once.
+- E2E stress harness: 44 feature scenarios, failure injection, 50 chats arriving at once.
 
 ---
 
