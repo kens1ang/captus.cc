@@ -155,13 +155,13 @@
       <!-- ── Product showcase ─────────────────────────────────────────── -->
       <section class="frame" id="product">
         <div class="wrap" style="padding-block: 72px 112px">
-          <div class="head reveal">
+          <div class="head">
             <h2 style="margin-top: 0; font-size: clamp(28px, 3.4vw, 40px)">
               <span class="dim">One inbox for every chat.</span> One AI that never logs off.
             </h2>
           </div>
 
-          <div class="showcase reveal">
+          <div class="showcase">
             <div class="tabs" role="tablist" aria-label="Product views">
               <button class="tab" role="tab" aria-selected="true" aria-controls="p-inbox" id="t-inbox">Inbox</button>
               <button class="tab" role="tab" aria-selected="false" aria-controls="p-agent" id="t-agent">AI agent</button>
@@ -173,7 +173,7 @@
               <!-- Inbox -->
               <div class="panel" id="p-inbox" role="tabpanel" aria-labelledby="t-inbox">
                 <div class="app">
-                  <div class="app-col list">
+                  <div class="app-col list" data-seq=".convo" style="--step: 90ms">
                     <div class="app-head">Inbox <span class="meta">4 need you</span></div>
                     <div class="convo active">
                       <span class="avatar">NA<i class="ch ig"></i></span>
@@ -221,7 +221,7 @@
                       <span>Nurul Aina <span class="meta">· Instagram DM · via ad “Raya Collection”</span></span>
                       <span class="tag ok" style="margin: 0">AI replying</span>
                     </div>
-                    <div class="thread" style="flex: 1">
+                    <div class="thread" style="flex: 1; --step: 420ms" data-seq>
                       <span class="sys">Today</span>
                       <div class="bubble in">Hi! Ada size M lagi untuk kurung moden yang hijau tu? <small>11:52 pm</small></div>
                       <div class="bubble out">
@@ -278,7 +278,7 @@
                 <div class="app" style="grid-template-columns: 1fr 1fr">
                   <div class="app-col" style="display: flex; flex-direction: column">
                     <div class="app-head">Knowledge <span class="meta">Synced 2 min ago</span></div>
-                    <div class="side" style="gap: 10px">
+                    <div class="side" style="gap: 10px; --step: 90ms" data-seq>
                       <div class="order"><div class="row"><strong>🌐 glowlab.my</strong><span class="tag ok" style="margin: 0">48 pages</span></div><div class="meta">Website · auto-synced daily</div></div>
                       <div class="order"><div class="row"><strong>🛍 Shopify catalog</strong><span class="tag ok" style="margin: 0">312 products</span></div><div class="meta">Live stock and prices</div></div>
                       <div class="order"><div class="row"><strong>📄 Price list 2026.pdf</strong><span class="tag" style="margin: 0">PDF</span></div><div class="meta">Sent when customers ask for it</div></div>
@@ -288,7 +288,7 @@
                   </div>
                   <div class="app-col" style="display: flex; flex-direction: column">
                     <div class="app-head">Test chat <span class="tag ok" style="margin: 0">Sandbox</span></div>
-                    <div class="thread" style="flex: 1">
+                    <div class="thread" style="flex: 1; --step: 420ms" data-seq>
                       <div class="bubble in">Do you do facials for sensitive skin? How much?</div>
                       <div class="bubble out">
                         <span class="by">Captus AI · from Price list 2026.pdf</span>
@@ -315,7 +315,7 @@
                 <div class="app" style="grid-template-columns: 1fr">
                   <div class="app-col">
                     <div class="app-head">This week <span class="meta">38 booked by Captus · 6 by staff · 2 no-shows</span></div>
-                    <div class="cal">
+                    <div class="cal" data-seq=".ev" style="--step: 45ms">
                       <div class="hd"></div>
                       <div class="hd">Mon 27</div>
                       <div class="hd">Tue 28</div>
@@ -361,12 +361,12 @@
                   <div class="app-col">
                     <div class="app-head">Insights <span class="meta">Last 30 days</span></div>
                     <div class="insights">
-                      <div class="stat"><span class="mono" style="color: var(--ink-3)">Resolved by AI</span><div class="n">86%</div><span class="d">▲ 9% vs last month</span></div>
-                      <div class="stat"><span class="mono" style="color: var(--ink-3)">Revenue from chat</span><div class="n">RM 48.2k</div><span class="d">▲ RM 11.4k</span></div>
-                      <div class="stat"><span class="mono" style="color: var(--ink-3)">Median reply</span><div class="n">4s</div><span class="d">was 3h 12m before Captus</span></div>
+                      <div class="stat"><span class="mono" style="color: var(--ink-3)">Resolved by AI</span><div class="n" data-count>86%</div><span class="d">▲ 9% vs last month</span></div>
+                      <div class="stat"><span class="mono" style="color: var(--ink-3)">Revenue from chat</span><div class="n" data-count>RM 48.2k</div><span class="d">▲ RM 11.4k</span></div>
+                      <div class="stat"><span class="mono" style="color: var(--ink-3)">Median reply</span><div class="n" data-count>4s</div><span class="d">was 3h 12m before Captus</span></div>
                       <div class="chart">
                         <span class="mono" style="color: var(--ink-3)">Chats by hour</span>
-                        <div class="bars" aria-hidden="true">
+                        <div class="bars" aria-hidden="true" data-seq style="--step: 35ms">
                           <i class="ai" style="height: 30%"></i><i class="ai" style="height: 22%"></i><i class="ai" style="height: 14%"></i><i style="height: 20%"></i>
                           <i style="height: 38%"></i><i style="height: 52%"></i><i style="height: 61%"></i><i style="height: 58%"></i><i style="height: 47%"></i>
                           <i style="height: 55%"></i><i style="height: 63%"></i><i class="ai" style="height: 72%"></i><i class="ai" style="height: 88%"></i>
@@ -374,7 +374,7 @@
                         </div>
                         <div class="legend"><span>After hours — handled by Captus</span><span>Business hours</span></div>
                       </div>
-                      <div class="asks">
+                      <div class="asks" data-seq=".ask" style="--step: 160ms">
                         <span class="mono" style="color: var(--ink-3)">Customers asked for things you don't sell</span>
                         <div class="ask">“Saturday morning classes”<span>31 asks</span></div>
                         <div class="ask">“Keratin treatment”<span>18 asks</span></div>
@@ -393,7 +393,7 @@
       <section class="section tint frame" id="agent">
         <div class="wrap">
           <div class="split-head">
-            <div class="head reveal">
+            <div class="head">
               <span class="mono kicker">Captus AI agent</span>
               <h2>Answers like your best staff. Sells like them too.</h2>
               <p>
@@ -417,7 +417,7 @@
             </svg>
           </div>
 
-          <div class="agent reveal">
+          <div class="agent">
             <div class="agent-demo">
               <div class="phone" aria-label="Example WhatsApp chat handled by Captus" role="img">
                 <div class="phone-screen">
@@ -425,7 +425,7 @@
                     <span class="avatar" style="background: #2a2f37; color: #fff">SL</span>
                     <div><strong>Studio Tanah</strong><span>online · replies instantly</span></div>
                   </div>
-                  <div class="thread">
+                  <div class="thread" data-seq style="--step: 650ms">
                     <span class="sys">Friday</span>
                     <div class="bubble in">hi can 3 of us join the wheel throwing class tmr? <small>11:41 pm</small></div>
                     <div class="bubble out">
@@ -480,7 +480,7 @@
             </div>
           </div>
 
-          <div class="promo reveal" id="shadow">
+          <div class="promo" id="shadow">
             <div class="badge" aria-hidden="true">
               <svg viewBox="0 0 60 40" width="60" height="40" fill="none" stroke="#eef0f3" stroke-width="1.6" stroke-linecap="round">
                 <rect x="4" y="6" width="34" height="20" rx="6" />
@@ -500,7 +500,7 @@
       <section class="section">
         <div class="wrap">
           <div class="split-head">
-            <div class="head reveal">
+            <div class="head">
               <span class="mono kicker violet">Captus inbox</span>
               <h2>A shared inbox your whole team will actually use.</h2>
               <p>
@@ -518,7 +518,7 @@
           </div>
 
           <div class="cards">
-            <div class="card reveal">
+            <div class="card">
               <div class="vis dots">
                 <div class="mini-card">
                   <div class="row"><span class="ico hot">!</span><strong>Priya needs you</strong><span class="meta" style="margin-left: auto">Messenger</span></div>
@@ -532,7 +532,7 @@
               <h3>Smooth handover, no awkward bots</h3>
               <p>Complaints, special requests and anything unsure go straight to you with the full context. Reply from the alert itself.</p>
             </div>
-            <div class="card reveal">
+            <div class="card">
               <div class="vis dots">
                 <div class="mini-card">
                   <div class="row"><span class="ico hot">🔥</span><strong>Hot lead · Hafiz Z.</strong></div>
@@ -546,7 +546,7 @@
               <h3>Never lose a warm lead again</h3>
               <p>Captus spots buyers who are ready, alerts you instantly, and follows up politely when they go quiet.</p>
             </div>
-            <div class="card reveal">
+            <div class="card">
               <div class="vis dots">
                 <div class="mini-card">
                   <div class="row"><strong>Assigned</strong><span class="meta" style="margin-left: auto">Bangsar branch</span></div>
@@ -570,14 +570,14 @@
       <!-- ── Sell / book / get paid ───────────────────────────────────── -->
       <section class="section tint frame">
         <div class="wrap">
-          <div class="head center reveal">
+          <div class="head center">
             <span class="mono kicker hot">Built for how you sell</span>
             <h2>Sell, book and get paid — without leaving the chat.</h2>
             <p>Your customers already live in WhatsApp and Instagram. Captus turns those chats into revenue.</p>
           </div>
 
           <div class="cards">
-            <div class="card reveal">
+            <div class="card">
               <div class="vis dots">
                 <div class="mini-card">
                   <div class="row"><span class="ico ok">📅</span><strong>Reminder · tomorrow 3:00 pm</strong></div>
@@ -588,7 +588,7 @@
               <h3>Bookings that show up</h3>
               <p>Real-time availability, deposits and two-step reminders with one-tap confirm, so fewer customers forget to turn up.</p>
             </div>
-            <div class="card reveal">
+            <div class="card">
               <div class="vis dots">
                 <div class="mini-card">
                   <div class="row"><strong>Invoice #INV-2291</strong><span class="tag ok" style="margin: 0 0 0 auto">Paid</span></div>
@@ -603,7 +603,7 @@
               <h3>Payments inside the conversation</h3>
               <p>Quotes, invoices and payment links from your real price list. DuitNow, FPX, cards and e-wallets.</p>
             </div>
-            <div class="card reveal">
+            <div class="card">
               <div class="vis dots">
                 <div class="mini-card">
                   <div class="row"><strong>Broadcast · Raya restock</strong></div>
@@ -625,19 +625,19 @@
       <!-- ── Why Captus + founding offer ──────────────────────────────── -->
       <section class="section">
         <div class="wrap">
-          <div class="head reveal">
+          <div class="head">
             <span class="mono kicker">Why Captus</span>
             <h2><span class="dim">Small teams.</span> Big‑business response times.</h2>
           </div>
 
-          <div class="stats reveal">
-            <div><b>24/7</b><span>Answers at 2 am, on weekends and on public holidays</span></div>
-            <div><b>&lt;20s</b><span>Every customer gets a reply within 20 seconds, even if they send five messages in a row</span></div>
+          <div class="stats">
+            <div><b data-count>24/7</b><span>Answers at 2 am, on weekends and on public holidays</span></div>
+            <div><b data-count>&lt;20s</b><span>Every customer gets a reply within 20 seconds, even if they send five messages in a row</span></div>
             <div><b>Any</b><span>language — replies in BM, English, 中文 or a mix, whatever the customer writes in</span></div>
             <div><b>0</b><span>apps for your customers to install. They message your number like they do today</span></div>
           </div>
 
-          <div class="founding reveal" id="founding">
+          <div class="founding" id="founding">
             <div>
               <span class="mono kicker hot">Founding customers</span>
               <h3>Be one of our first 20 businesses.</h3>
@@ -663,13 +663,13 @@
       <!-- ── ROI calculator ───────────────────────────────────────────── -->
       <section class="section tint frame">
         <div class="wrap">
-          <div class="head reveal">
+          <div class="head">
             <span class="mono kicker hot">Calculator</span>
             <h2>How much are you leaving on “seen”?</h2>
             <p>Every slow or missed reply is a customer who bought somewhere else. Move the sliders to see what it costs you.</p>
           </div>
 
-          <div class="roi reveal">
+          <div class="roi">
             <div class="roi-in">
               <div class="field">
                 <label for="r-chats">New enquiries per day <output id="o-chats">30</output></label>
@@ -690,11 +690,11 @@
             </div>
             <div class="roi-out">
               <span class="mono">Revenue lost every month</span>
-              <div class="big" id="o-lost">RM 7,560</div>
+              <div class="big" id="o-lost" data-count>RM 7,560</div>
               <p>That's what slow replies are costing you today. Captus answers every one of them in seconds, 24/7.</p>
               <div class="split">
-                <div><b id="o-year">RM 90,720</b><span>lost per year</span></div>
-                <div><b id="o-missed">315</b><span>customers left waiting each month</span></div>
+                <div><b id="o-year" data-count>RM 90,720</b><span>lost per year</span></div>
+                <div><b id="o-missed" data-count>315</b><span>customers left waiting each month</span></div>
               </div>
               <a class="btn btn-lg" href="https://app.captus.cc/">Get it back — start free</a>
             </div>
@@ -706,7 +706,7 @@
       <!-- ── Integrations ─────────────────────────────────────────────── -->
       <section class="section" id="integrations">
         <div class="wrap integrations">
-          <div class="head reveal">
+          <div class="head">
             <span class="mono kicker">Integrations</span>
             <h2>Works with the tools you already use.</h2>
             <p>
@@ -718,7 +718,7 @@
               <a class="btn btn-ghost" href="mailto:hello@captus.cc?subject=Captus%20integrations">Ask about an integration</a>
             </div>
           </div>
-          <div class="int-grid reveal">
+          <div class="int-grid" data-seq style="--step: 40ms">
             <div class="int"><i style="background: #25d366">W</i>WhatsApp</div>
             <div class="int"><i style="background: linear-gradient(135deg, #f9ce34, #ee2a7b, #6228d7)">IG</i>Instagram</div>
             <div class="int"><i style="background: #0a7cff">M</i>Messenger</div>
@@ -739,7 +739,7 @@
       <!-- PLACEHOLDER prices and limits — set real plans before launch. -->
       <section class="pricing-wrap frame" id="pricing" hidden>
         <div class="wrap">
-          <div class="head center reveal" style="position: relative">
+          <div class="head center" style="position: relative">
             <span class="mono kicker">Pricing</span>
             <h2>Simple pricing. Pays for itself in a week.</h2>
             <p>Every plan includes the AI agent, the shared inbox and unlimited human replies. WhatsApp's own message fees are passed through at cost.</p>
@@ -749,7 +749,7 @@
             </div>
           </div>
 
-          <div class="plans reveal">
+          <div class="plans">
             <div class="plan">
               <div class="top"><h3>Starter</h3></div>
               <p class="for">For solo owners getting started.</p>
@@ -799,12 +799,12 @@
       <!-- ── FAQ ──────────────────────────────────────────────────────── -->
       <section class="section" id="faq">
         <div class="wrap faq-grid">
-          <div class="head reveal">
+          <div class="head">
             <span class="mono kicker">FAQ</span>
             <h2>Questions, answered.</h2>
             <p>Still unsure? <a href="mailto:hello@captus.cc" style="text-decoration: underline; text-underline-offset: 3px">Email us</a> — a human replies within a day.</p>
           </div>
-          <div class="faq reveal">
+          <div class="faq">
             <details open>
               <summary>Will it make things up?</summary>
               <p>No. Captus only answers from what you've given it — your website, catalog, documents and settings. If it isn't sure, it says so and hands the chat to you instead of guessing.</p>
@@ -914,6 +914,53 @@
     <script>
       document.getElementById("year").textContent = new Date().getFullYear();
 
+      // Scroll-in demos: [data-seq] shows its items one by one, [data-count] counts up to its number.
+      const motion = !matchMedia("(prefers-reduced-motion: reduce)").matches;
+      const plays = motion ? [...document.querySelectorAll("[data-seq], [data-count]")] : [];
+      plays.forEach((el) => {
+        if (!("seq" in el.dataset)) return;
+        el.classList.add("seq");
+        el.querySelectorAll(el.dataset.seq || ":scope > *").forEach((c, i) => {
+          c.classList.add("si");
+          c.style.setProperty("--i", i);
+        });
+      });
+
+      // Remembers the element's number and shows it as 0 until it plays.
+      function prepCount(el) {
+        const text = el.textContent;
+        const m = text.match(/\d[\d,]*(\.\d+)?/);
+        if (!m) return;
+        const dec = m[1] ? m[1].length - 1 : 0;
+        el._to = parseFloat(m[0].replace(/,/g, ""));
+        el._fmt = (n) => text.slice(0, m.index) + n.toLocaleString("en-MY", { minimumFractionDigits: dec, maximumFractionDigits: dec }) + text.slice(m.index + m[0].length);
+        el.textContent = el._fmt(0);
+      }
+
+      function countUp(el) {
+        // Skip if the text was changed by something else (the ROI sliders).
+        if (!el._fmt || ![el._fmt(0), el._fmt(el._to)].includes(el.textContent)) return;
+        const t0 = performance.now();
+        let last;
+        const step = (t) => {
+          if (last !== undefined && el.textContent !== last) return;
+          const k = Math.min(1, (t - t0) / 1100);
+          last = el.textContent = el._fmt(el._to * (1 - Math.pow(1 - k, 3)));
+          if (k < 1) requestAnimationFrame(step);
+        };
+        requestAnimationFrame(step);
+      }
+
+      function play(el) {
+        playIo.unobserve(el);
+        if (el.classList.contains("seq")) el.classList.add("in");
+        if ("count" in el.dataset) countUp(el);
+      }
+      const playIo = new IntersectionObserver((entries) => entries.forEach((e) => e.isIntersecting && play(e.target)), {
+        rootMargin: "0px 0px -15% 0px",
+      });
+      plays.forEach((el) => playIo.observe(el));
+
       // Product tabs
       const tabs = document.querySelectorAll(".tab");
       tabs.forEach((tab) =>
@@ -921,7 +968,14 @@
           tabs.forEach((t) => {
             const on = t === tab;
             t.setAttribute("aria-selected", on);
-            document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+            const panel = document.getElementById(t.getAttribute("aria-controls"));
+            const inPanel = plays.filter((el) => panel.contains(el));
+            if (on) inPanel.forEach((el) => el.classList.remove("in"));
+            panel.hidden = !on;
+            if (on) {
+              void panel.offsetWidth;
+              inPanel.forEach(play);
+            }
           });
         })
       );
@@ -951,13 +1005,7 @@
       }
       document.querySelectorAll(".roi input").forEach((i) => i.addEventListener("input", calc));
       calc();
-
-      // Reveal on scroll
-      const io = new IntersectionObserver(
-        (entries) => entries.forEach((e) => e.isIntersecting && (e.target.classList.add("in"), io.unobserve(e.target))),
-        { rootMargin: "0px 0px -8% 0px" }
-      );
-      document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
+      plays.forEach((el) => "count" in el.dataset && prepCount(el));
     </script>
   </body>
 </html>

@@ -2101,17 +2101,63 @@ input[type="range"] {
   }
 }
 
-/* ── Reveal on scroll ──────────────────────────────────────────────── */
+/* ── Scroll-in demos ───────────────────────────────────────────────── */
 
-.reveal {
+/* Demo items set up by the script: shown one by one once their container scrolls in. */
+.si {
   opacity: 0;
-  transform: translateY(16px);
-  transition: opacity 0.7s ease, transform 0.7s ease;
+  transform: translateY(8px) scale(0.97);
+  transition: opacity 0.45s ease, transform 0.45s cubic-bezier(0.2, 0.8, 0.2, 1);
+  transition-delay: calc(var(--i) * var(--step, 120ms) + 150ms);
 }
 
-.reveal.in {
+.bars .si {
+  opacity: 1;
+  transform: scaleY(0);
+  transform-origin: bottom;
+  transition-duration: 0.6s;
+}
+
+.seq.in .si {
   opacity: 1;
   transform: none;
+}
+
+[data-count] {
+  font-variant-numeric: tabular-nums;
+}
+
+/* Hero cards pop in one after another on load; `scale`/`translate` leave `transform` to the bob. */
+@keyframes pop {
+  from {
+    opacity: 0;
+    scale: 0.92;
+    translate: 0 14px;
+  }
+}
+
+.hero .float {
+  animation: pop 0.7s cubic-bezier(0.2, 0.8, 0.2, 1) var(--pd) both, bob 7s ease-in-out infinite;
+}
+
+.hero .float:nth-of-type(2n) {
+  animation-delay: var(--pd), -3.5s;
+}
+
+.f-night {
+  --pd: 0.2s;
+}
+
+.f-booking {
+  --pd: 0.45s;
+}
+
+.f-alert {
+  --pd: 0.7s;
+}
+
+.f-voice {
+  --pd: 0.95s;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2119,14 +2165,9 @@ input[type="range"] {
     scroll-behavior: auto;
   }
 
-  .float {
+  .float,
+  .hero .float {
     animation: none;
-  }
-
-  .reveal {
-    opacity: 1;
-    transform: none;
-    transition: none;
   }
 }
 
