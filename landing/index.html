@@ -4,19 +4,21 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="facebook-domain-verification" content="4x42d592gkmx0dr1yhgu8emz3tgind" />
-    <title>Captus — An AI assistant for your WhatsApp Business</title>
+    <title>Captus — The AI front desk for WhatsApp, Instagram and every chat</title>
     <meta
       name="description"
-      content="Captus answers your customers on WhatsApp 24/7 — prices, opening hours, bookings and more — from what you tell it about your business, and hands the chat to you when it should."
+      content="Captus answers every customer on WhatsApp, Instagram and Facebook in seconds — checks stock, books appointments, takes payment and hands the tricky chats to your team. 24/7, in English, BM and 中文."
     />
-    <meta property="og:title" content="Captus — An AI assistant for your WhatsApp Business" />
+    <meta property="og:title" content="Captus — The AI front desk for every chat" />
     <meta
       property="og:description"
-      content="Answers customers on WhatsApp around the clock, books appointments into your calendar, and hands over to you when it should."
+      content="Answer, book and sell on WhatsApp, Instagram and Facebook around the clock. One inbox for your team, one AI that never logs off."
     />
     <meta property="og:url" content="https://captus.cc/" />
     <meta property="og:type" content="website" />
-    <meta name="theme-color" content="#10a37f" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f2f3f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0b0d" media="(prefers-color-scheme: dark)" />
     <link rel="canonical" href="https://captus.cc/" />
     <script type="application/ld+json">
       {
@@ -36,7 +38,7 @@
             "name": "Captus",
             "applicationCategory": "BusinessApplication",
             "operatingSystem": "Web",
-            "description": "AI assistant that answers your customers on WhatsApp Business 24/7, books appointments and hands chats to you when needed.",
+            "description": "AI front desk that answers customers on WhatsApp, Instagram and Facebook 24/7, books appointments, takes payments and hands chats to your team.",
             "url": "https://captus.cc/"
           }
         ]
@@ -45,214 +47,812 @@
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/style.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/home.css" />
   </head>
   <body>
+    <a class="announce" href="#shadow">
+      <strong>New:</strong> Shadow mode — Captus drafts, you approve, go live when you trust it. <u>See how it works</u>
+    </a>
+
     <header class="site-header">
       <div class="wrap">
-        <a href="/" class="logo"><span class="logo-mark"><svg viewBox="0 0 120 120" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M0 120V28A28 28 0 0 1 28 0H92A28 28 0 0 1 120 28V46H70A14 14 0 0 0 70 74H120V92A28 28 0 0 1 92 120Z"/></svg></span>Captus</a>
-        <nav class="nav">
-          <a class="nav-link" href="#features">Features</a>
-          <a class="nav-link" href="#how">How it works</a>
-          <a class="nav-link" href="#faq">FAQ</a>
-          <a class="btn btn-secondary" href="https://app.captus.cc/">Sign in</a>
+        <a href="/" class="logo" aria-label="Captus home"
+          ><span class="logo-mark"
+            ><svg viewBox="0 0 120 120" width="13" height="13" aria-hidden="true">
+              <path fill="currentColor" d="M0 120V28A28 28 0 0 1 28 0H92A28 28 0 0 1 120 28V46H70A14 14 0 0 0 70 74H120V92A28 28 0 0 1 92 120Z" /></svg></span
+          >captus</a
+        >
+        <nav class="nav" aria-label="Main">
+          <a href="#product">Product</a>
+          <a href="#agent">AI agent</a>
+          <a href="#integrations">Integrations</a>
         </nav>
+        <div class="header-cta">
+          <a class="link" href="https://app.captus.cc/">Sign in</a>
+          <a class="btn btn-ghost btn-sm" href="mailto:hello@captus.cc?subject=Captus%20demo">Book a demo</a>
+          <a class="btn btn-primary btn-sm" href="https://app.captus.cc/">Start free trial</a>
+        </div>
       </div>
     </header>
 
     <main>
+      <!-- ── Hero ─────────────────────────────────────────────────────── -->
       <section class="hero">
+        <div class="float f-night" aria-hidden="true">
+          <svg viewBox="0 0 190 230" width="190" height="230">
+            <defs>
+              <linearGradient id="sky" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0" stop-color="#0b1220" />
+                <stop offset="0.65" stop-color="#1c2b45" />
+                <stop offset="1" stop-color="#3a4d6b" />
+              </linearGradient>
+            </defs>
+            <rect width="190" height="230" fill="url(#sky)" />
+            <g fill="#fff">
+              <circle cx="22" cy="30" r="0.9" /><circle cx="60" cy="18" r="0.7" /><circle cx="96" cy="44" r="1" />
+              <circle cx="150" cy="24" r="0.8" /><circle cx="170" cy="62" r="0.7" /><circle cx="40" cy="70" r="0.6" />
+              <circle cx="120" cy="80" r="0.6" />
+            </g>
+            <circle cx="138" cy="52" r="20" fill="#f4ecd8" />
+            <circle cx="147" cy="45" r="18" fill="#0f182a" />
+            <g fill="#070b13">
+              <rect x="0" y="150" width="34" height="80" /><rect x="30" y="128" width="30" height="102" />
+              <rect x="58" y="160" width="26" height="70" /><rect x="82" y="112" width="38" height="118" />
+              <rect x="118" y="146" width="28" height="84" /><rect x="144" y="132" width="46" height="98" />
+            </g>
+            <g fill="#f2c46a">
+              <rect x="38" y="140" width="5" height="6" /><rect x="90" y="124" width="5" height="6" />
+              <rect x="104" y="150" width="5" height="6" opacity=".7" /><rect x="152" y="146" width="5" height="6" />
+              <rect x="168" y="172" width="5" height="6" opacity=".6" /><rect x="10" y="170" width="5" height="6" opacity=".7" />
+            </g>
+            <text x="14" y="214" fill="#fff" font-family="Geist Mono, monospace" font-size="11" letter-spacing="1">02:14 AM</text>
+          </svg>
+        </div>
+
+        <div class="float f-alert mini-card" aria-hidden="true">
+          <div class="row"><span class="ico hot">🔥</span><strong>Hot lead</strong><span class="meta" style="margin-left: auto">now</span></div>
+          <p>Aisyah wants 3 seats for Saturday's pottery class. Payment link sent.</p>
+        </div>
+
+        <div class="float f-booking mini-card" aria-hidden="true">
+          <div class="row"><span class="ico ok">✓</span><strong>Booked by Captus</strong></div>
+          <p>Hair colour + treatment<br /><span style="color: var(--ink)">Sat, 3:00 pm · with Mei</span></p>
+          <div class="row" style="margin-top: 8px"><span class="tag ok" style="margin: 0">Deposit RM50 paid</span></div>
+        </div>
+
+        <div class="float f-voice mini-card" aria-hidden="true">
+          <div class="row">
+            <span class="ico ok">▶</span>
+            <span class="voice-wave"
+              ><i style="height: 8px"></i><i style="height: 14px"></i><i style="height: 20px"></i><i style="height: 11px"></i
+              ><i style="height: 17px"></i><i style="height: 8px"></i><i style="height: 13px"></i><i style="height: 19px"></i
+              ><i style="height: 9px"></i><i style="height: 15px"></i><i style="height: 6px"></i
+            ></span>
+            <span class="meta">0:12</span>
+          </div>
+          <p>Voice note understood · replied in BM</p>
+        </div>
+
+        <div class="wrap hero-inner">
+          <a class="pill" href="#integrations"><b>New</b> Shopify orders + Instagram DMs, now in one inbox →</a>
+          <h1><span class="dim">Turn every chat into</span><br class="br" /> a sale, a booking,<br class="br" /> <span class="dim">a regular.</span></h1>
+          <p class="lede">
+            Captus is the AI front desk for WhatsApp, Instagram and Facebook. It answers in seconds, checks stock, books
+            appointments, takes payment — and hands the tricky chats to your team. 24/7, in English, BM and 中文.
+          </p>
+          <div class="cta-row">
+            <a class="btn btn-primary btn-lg" href="https://app.captus.cc/">Start free trial</a>
+            <a class="btn btn-ghost btn-lg" href="mailto:hello@captus.cc?subject=Captus%20demo">Book a demo</a>
+          </div>
+          <div class="hero-note"><span>14-day free trial</span><span>No credit card</span><span>Live in 15 minutes</span></div>
+        </div>
+      </section>
+
+      <!-- ── Product showcase ─────────────────────────────────────────── -->
+      <section class="frame" id="product">
+        <div class="wrap" style="padding-block: 72px 112px">
+          <div class="head reveal">
+            <h2 style="margin-top: 0; font-size: clamp(28px, 3.4vw, 40px)">
+              <span class="dim">One inbox for every chat.</span> One AI that never logs off.
+            </h2>
+          </div>
+
+          <div class="showcase reveal">
+            <div class="tabs" role="tablist" aria-label="Product views">
+              <button class="tab" role="tab" aria-selected="true" aria-controls="p-inbox" id="t-inbox">Inbox</button>
+              <button class="tab" role="tab" aria-selected="false" aria-controls="p-agent" id="t-agent">AI agent</button>
+              <button class="tab" role="tab" aria-selected="false" aria-controls="p-book" id="t-book">Bookings</button>
+              <button class="tab" role="tab" aria-selected="false" aria-controls="p-ins" id="t-ins">Insights</button>
+            </div>
+
+            <div class="stage">
+              <!-- Inbox -->
+              <div class="panel" id="p-inbox" role="tabpanel" aria-labelledby="t-inbox">
+                <div class="app">
+                  <div class="app-col list">
+                    <div class="app-head">Inbox <span class="meta">4 need you</span></div>
+                    <div class="convo active">
+                      <span class="avatar">NA<i class="ch ig"></i></span>
+                      <div class="convo-body">
+                        <div class="convo-top"><strong>Nurul Aina</strong><span>now</span></div>
+                        <p>Ada size M lagi untuk yang hijau?</p>
+                        <span class="tag hot">🔥 Hot lead</span>
+                      </div>
+                    </div>
+                    <div class="convo">
+                      <span class="avatar">JT<i class="ch wa"></i></span>
+                      <div class="convo-body">
+                        <div class="convo-top"><strong>Jason Tan</strong><span>2m</span></div>
+                        <p>Booked: Deep tissue, Thu 7pm</p>
+                        <span class="tag ok">Resolved by AI</span>
+                      </div>
+                    </div>
+                    <div class="convo">
+                      <span class="avatar">PR<i class="ch fb"></i></span>
+                      <div class="convo-body">
+                        <div class="convo-top"><strong>Priya R.</strong><span>6m</span></div>
+                        <p>My parcel hasn't arrived and it's been 5 days</p>
+                        <span class="tag violet">Handed to you</span>
+                      </div>
+                    </div>
+                    <div class="convo">
+                      <span class="avatar">陈<i class="ch wa"></i></span>
+                      <div class="convo-body">
+                        <div class="convo-top"><strong>陈小姐</strong><span>11m</span></div>
+                        <p>请问周日有开吗？</p>
+                        <span class="tag ok">Resolved by AI</span>
+                      </div>
+                    </div>
+                    <div class="convo">
+                      <span class="avatar">HZ<i class="ch web"></i></span>
+                      <div class="convo-body">
+                        <div class="convo-top"><strong>Hafiz Z.</strong><span>24m</span></div>
+                        <p>Can I pay by DuitNow?</p>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="app-col" style="display: flex; flex-direction: column">
+                    <div class="app-head">
+                      <span>Nurul Aina <span class="meta">· Instagram DM · via ad “Raya Collection”</span></span>
+                      <span class="tag ok" style="margin: 0">AI replying</span>
+                    </div>
+                    <div class="thread" style="flex: 1">
+                      <span class="sys">Today</span>
+                      <div class="bubble in">Hi! Ada size M lagi untuk kurung moden yang hijau tu? <small>11:52 pm</small></div>
+                      <div class="bubble out">
+                        <span class="by">Captus AI</span>
+                        Ada! Tinggal 3 helai saiz M 🌿
+                        <div class="product">
+                          <span class="thumb" style="background: linear-gradient(135deg, #2f6b55, #9fd1b8)"></span>
+                          <div><strong>Kurung Moden Sage</strong><span>RM189 · Size M · 3 in stock</span></div>
+                        </div>
+                        Nak saya simpan satu untuk awak?
+                        <small>11:52 pm</small>
+                      </div>
+                      <div class="bubble in">Nak! Boleh bayar sekarang? <small>11:53 pm</small></div>
+                      <div class="bubble out">
+                        <span class="by">Captus AI</span>
+                        Boleh — ini link bayaran. Saya dah simpan saiz M untuk 30 minit ✨
+                        <small>11:53 pm</small>
+                      </div>
+                    </div>
+                    <div class="composer">Reply as your team, or let Captus continue… <span class="btn btn-primary btn-sm">Take over</span></div>
+                  </div>
+
+                  <div class="app-col side">
+                    <div>
+                      <h4>Customer</h4>
+                      <div class="kv">
+                        <div><span>Name</span><span>Nurul Aina</span></div>
+                        <div><span>Channel</span><span>Instagram</span></div>
+                        <div><span>Language</span><span>Bahasa Melayu</span></div>
+                        <div><span>Lifetime</span><span>RM 612</span></div>
+                      </div>
+                    </div>
+                    <div>
+                      <h4>Shopify orders</h4>
+                      <div class="order">
+                        <div class="row"><strong>#1042</strong><span class="tag ok" style="margin: 0">Delivered</span></div>
+                        <div class="meta">Baju kurung · RM 229 · 12 Sep</div>
+                      </div>
+                      <div class="order">
+                        <div class="row"><strong>#0987</strong><span class="tag" style="margin: 0">Delivered</span></div>
+                        <div class="meta">Tudung set · RM 194 · 2 Aug</div>
+                      </div>
+                    </div>
+                    <div class="copilot">
+                      <strong style="font-weight: 500">✦ Captus noticed</strong>
+                      <p>Returning customer, came from your Raya ad. Likely to buy today.</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- AI agent -->
+              <div class="panel" id="p-agent" role="tabpanel" aria-labelledby="t-agent" hidden>
+                <div class="app" style="grid-template-columns: 1fr 1fr">
+                  <div class="app-col" style="display: flex; flex-direction: column">
+                    <div class="app-head">Knowledge <span class="meta">Synced 2 min ago</span></div>
+                    <div class="side" style="gap: 10px">
+                      <div class="order"><div class="row"><strong>🌐 glowlab.my</strong><span class="tag ok" style="margin: 0">48 pages</span></div><div class="meta">Website · auto-synced daily</div></div>
+                      <div class="order"><div class="row"><strong>🛍 Shopify catalog</strong><span class="tag ok" style="margin: 0">312 products</span></div><div class="meta">Live stock and prices</div></div>
+                      <div class="order"><div class="row"><strong>📄 Price list 2026.pdf</strong><span class="tag" style="margin: 0">PDF</span></div><div class="meta">Sent when customers ask for it</div></div>
+                      <div class="order"><div class="row"><strong>📅 Google Calendar</strong><span class="tag ok" style="margin: 0">Connected</span></div><div class="meta">3 staff calendars</div></div>
+                      <div class="order"><div class="row"><strong>✍️ Tone &amp; rules</strong><span class="tag" style="margin: 0">Custom</span></div><div class="meta">Friendly, short, never discounts above 10%</div></div>
+                    </div>
+                  </div>
+                  <div class="app-col" style="display: flex; flex-direction: column">
+                    <div class="app-head">Test chat <span class="tag ok" style="margin: 0">Sandbox</span></div>
+                    <div class="thread" style="flex: 1">
+                      <div class="bubble in">Do you do facials for sensitive skin? How much?</div>
+                      <div class="bubble out">
+                        <span class="by">Captus AI · from Price list 2026.pdf</span>
+                        Yes! Our Calm Hydrating Facial is made for sensitive skin — RM168 for 60 min. First visit is RM138 this month. Want me to check a slot?
+                      </div>
+                      <div class="bubble in">Saturday afternoon?</div>
+                      <div class="bubble out">
+                        <span class="by">Captus AI · Google Calendar</span>
+                        Saturday has these open:
+                        <div class="chips"><span>2:00 pm</span><span>3:30 pm</span><span>5:00 pm</span></div>
+                      </div>
+                      <div class="bubble in">Can I bring my own serum and get a discount?</div>
+                      <div class="bubble out">
+                        <span class="by">Captus AI · handed to staff</span>
+                        Good question — let me check with our therapist and get back to you shortly 🙏
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Bookings -->
+              <div class="panel" id="p-book" role="tabpanel" aria-labelledby="t-book" hidden>
+                <div class="app" style="grid-template-columns: 1fr">
+                  <div class="app-col">
+                    <div class="app-head">This week <span class="meta">38 booked by Captus · 6 by staff · 2 no-shows</span></div>
+                    <div class="cal">
+                      <div class="hd"></div>
+                      <div class="hd">Mon 27</div>
+                      <div class="hd">Tue 28</div>
+                      <div class="hd">Wed 29</div>
+                      <div class="hd x">Thu 30</div>
+                      <div class="hd x">Fri 31</div>
+
+                      <div class="t">10 am</div>
+                      <div><div class="ev g"><b>Facial · Amira</b>Booked 1:12 am</div></div>
+                      <div></div>
+                      <div><div class="ev v"><b>Haircut · Daniel</b>Booked by staff</div></div>
+                      <div class="x"><div class="ev g"><b>Massage · Kok Wai</b>Confirmed ✓</div></div>
+                      <div class="x"></div>
+
+                      <div class="t">12 pm</div>
+                      <div></div>
+                      <div><div class="ev g"><b>Colour · Sarah</b>Deposit paid</div></div>
+                      <div><div class="ev g"><b>Facial · Lim</b>Rescheduled by AI</div></div>
+                      <div class="x"></div>
+                      <div class="x"><div class="ev a"><b>Bridal trial · Dina</b>Needs you</div></div>
+
+                      <div class="t">3 pm</div>
+                      <div><div class="ev g"><b>Nails · Wei Ling</b>Reminder sent</div></div>
+                      <div><div class="ev v"><b>Haircut · Arjun</b>Walk-in</div></div>
+                      <div></div>
+                      <div class="x"><div class="ev g"><b>Facial · Hana</b>Booked 11:48 pm</div></div>
+                      <div class="x"><div class="ev g"><b>Massage · Tan</b>Confirmed ✓</div></div>
+
+                      <div class="t">6 pm</div>
+                      <div></div>
+                      <div><div class="ev g"><b>Colour · Farah</b>Booked via IG</div></div>
+                      <div><div class="ev g"><b>Nails · Joanne</b>Booked 2:03 am</div></div>
+                      <div class="x"></div>
+                      <div class="x"><div class="ev g"><b>Facial · Mei</b>Deposit paid</div></div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Insights -->
+              <div class="panel" id="p-ins" role="tabpanel" aria-labelledby="t-ins" hidden>
+                <div class="app" style="grid-template-columns: 1fr">
+                  <div class="app-col">
+                    <div class="app-head">Insights <span class="meta">Last 30 days</span></div>
+                    <div class="insights">
+                      <div class="stat"><span class="mono" style="color: var(--ink-3)">Resolved by AI</span><div class="n">86%</div><span class="d">▲ 9% vs last month</span></div>
+                      <div class="stat"><span class="mono" style="color: var(--ink-3)">Revenue from chat</span><div class="n">RM 48.2k</div><span class="d">▲ RM 11.4k</span></div>
+                      <div class="stat"><span class="mono" style="color: var(--ink-3)">Median reply</span><div class="n">4s</div><span class="d">was 3h 12m before Captus</span></div>
+                      <div class="chart">
+                        <span class="mono" style="color: var(--ink-3)">Chats by hour</span>
+                        <div class="bars" aria-hidden="true">
+                          <i class="ai" style="height: 30%"></i><i class="ai" style="height: 22%"></i><i class="ai" style="height: 14%"></i><i style="height: 20%"></i>
+                          <i style="height: 38%"></i><i style="height: 52%"></i><i style="height: 61%"></i><i style="height: 58%"></i><i style="height: 47%"></i>
+                          <i style="height: 55%"></i><i style="height: 63%"></i><i class="ai" style="height: 72%"></i><i class="ai" style="height: 88%"></i>
+                          <i class="ai" style="height: 96%"></i><i class="ai" style="height: 80%"></i><i class="ai" style="height: 54%"></i>
+                        </div>
+                        <div class="legend"><span>After hours — handled by Captus</span><span>Business hours</span></div>
+                      </div>
+                      <div class="asks">
+                        <span class="mono" style="color: var(--ink-3)">Customers asked for things you don't sell</span>
+                        <div class="ask">“Saturday morning classes”<span>31 asks</span></div>
+                        <div class="ask">“Keratin treatment”<span>18 asks</span></div>
+                        <div class="ask">“Delivery to Singapore”<span>12 asks</span></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── AI agent ─────────────────────────────────────────────────── -->
+      <section class="section tint frame" id="agent">
         <div class="wrap">
-          <div>
-            <span class="eyebrow">AI assistant for WhatsApp Business</span>
-            <h1>Never leave a customer on <span class="accent">“seen”</span> again.</h1>
-            <p class="lede">
-              Captus answers your customers on WhatsApp around the clock — prices, opening hours, directions, bookings — using what
-              you tell it about your business. When a chat needs a human, it hands it straight to you.
+          <div class="split-head">
+            <div class="head reveal">
+              <span class="mono kicker">Captus AI agent</span>
+              <h2>Answers like your best staff. Sells like them too.</h2>
+              <p>
+                Captus learns your business from your website, Shopify store, price lists and past chats. Then it replies in seconds,
+                in your tone and your customer's language — and never makes up a price, a promise or a policy.
+              </p>
+              <div class="cta-row">
+                <a class="btn btn-primary" href="https://app.captus.cc/">Start free trial</a>
+                <a class="btn btn-ghost" href="mailto:hello@captus.cc?subject=Captus%20demo">Book a demo</a>
+              </div>
+            </div>
+            <svg class="art" viewBox="0 0 240 220" width="260" height="240" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M150 34a72 72 0 1 0 50 120 60 60 0 1 1-50-120Z" />
+              <path d="M58 62l3 7 7 3-7 3-3 7-3-7-7-3 7-3z" fill="currentColor" stroke="none" />
+              <path d="M196 30l2 5 5 2-5 2-2 5-2-5-5-2 5-2z" fill="currentColor" stroke="none" />
+              <path d="M30 128l2 4 4 2-4 2-2 4-2-4-4-2 4-2z" fill="currentColor" stroke="none" />
+              <rect x="128" y="132" width="96" height="44" rx="12" fill="var(--bg-2)" />
+              <path d="M146 176l-8 14 22-14" fill="var(--bg-2)" />
+              <path d="M144 148h52M144 160h34" />
+              <circle cx="210" cy="154" r="3" fill="var(--accent)" stroke="none" />
+            </svg>
+          </div>
+
+          <div class="agent reveal">
+            <div class="agent-demo">
+              <div class="phone" aria-label="Example WhatsApp chat handled by Captus" role="img">
+                <div class="phone-screen">
+                  <div class="phone-top">
+                    <span class="avatar" style="background: #2a2f37; color: #fff">SL</span>
+                    <div><strong>Studio Tanah</strong><span>online · replies instantly</span></div>
+                  </div>
+                  <div class="thread">
+                    <span class="sys">Friday</span>
+                    <div class="bubble in">hi can 3 of us join the wheel throwing class tmr? <small>11:41 pm</small></div>
+                    <div class="bubble out">
+                      Hi! Yes — Saturday 2pm has 4 seats left 🙌 It's RM120/pax, all clay &amp; firing included.
+                      <small>11:41 pm</small>
+                    </div>
+                    <div class="bubble in">ok book 3 pls, under Aisyah <small>11:42 pm</small></div>
+                    <div class="bubble out">
+                      Done! 3 seats held for 15 min.
+                      <div class="pay">
+                        <div class="row"><span>Wheel throwing × 3</span><span>RM 360</span></div>
+                        <span class="btnish">Pay with DuitNow / card</span>
+                      </div>
+                      <small>11:42 pm</small>
+                    </div>
+                    <div class="bubble in">paid! <small>11:44 pm</small></div>
+                    <div class="bubble out">Received, thank you Aisyah 🎉 See you Sat 2pm. I'll send a reminder in the morning. <small>11:44 pm</small></div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div class="steps">
+              <div class="step">
+                <h3>Train it in minutes, test it before customers do</h3>
+                <p>
+                  Paste your website, connect Shopify, upload menus and price lists, or import past WhatsApp chats. Try it in the test
+                  chat, then turn on <strong style="font-weight: 500">Shadow mode</strong> to see what it would have said to real
+                  customers before it says anything.
+                </p>
+              </div>
+              <div class="step">
+                <h3>One brain across every channel</h3>
+                <p>Same answers, same tone, same customer history — wherever your customers message you.</p>
+                <div class="channel-row">
+                  <span><i style="background: #25d366"></i>WhatsApp</span>
+                  <span><i style="background: linear-gradient(135deg, #f9ce34, #ee2a7b, #6228d7)"></i>Instagram</span>
+                  <span><i style="background: #0a7cff"></i>Messenger</span>
+                  <span><i style="background: var(--violet)"></i>Website chat</span>
+                  <span><i style="background: var(--ink)"></i>TikTok</span>
+                </div>
+              </div>
+              <div class="step">
+                <h3>Does the work, not just the talking</h3>
+                <ul>
+                  <li>Checks live stock and order status in Shopify</li>
+                  <li>Books, reschedules and cancels in Google Calendar</li>
+                  <li>Sends payment links — DuitNow, FPX, cards, deposits</li>
+                  <li>Understands voice notes, photos and PDFs</li>
+                  <li>Knows when to stop and hand over to a human</li>
+                </ul>
+              </div>
+            </div>
+          </div>
+
+          <div class="promo reveal" id="shadow">
+            <div class="badge" aria-hidden="true">
+              <svg viewBox="0 0 60 40" width="60" height="40" fill="none" stroke="#eef0f3" stroke-width="1.6" stroke-linecap="round">
+                <rect x="4" y="6" width="34" height="20" rx="6" />
+                <rect x="22" y="14" width="34" height="20" rx="6" stroke-dasharray="3 3" opacity=".7" />
+              </svg>
+            </div>
+            <div>
+              <h3>Introducing <span class="serif">Shadow mode</span></h3>
+              <p>Captus drafts a reply for every real chat, side by side with yours. Flip the switch when it agrees with you 9 times out of 10.</p>
+            </div>
+            <a class="btn" href="https://app.captus.cc/">Try it free</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Team inbox ───────────────────────────────────────────────── -->
+      <section class="section">
+        <div class="wrap">
+          <div class="split-head">
+            <div class="head reveal">
+              <span class="mono kicker violet">Captus inbox</span>
+              <h2>A shared inbox your whole team will actually use.</h2>
+              <p>
+                Every WhatsApp, Instagram and Facebook chat in one place — with the AI's work, the customer's orders and your team's
+                notes right beside it. Jump in from your laptop or straight from your phone.
+              </p>
+            </div>
+            <svg class="art" viewBox="0 0 260 200" width="280" height="220" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M30 120l70-30-40 50z" /><path d="M60 140l6-22 34-28" />
+              <path d="M120 70l56-24-32 40z" /><path d="M144 86l5-18 27-22" />
+              <path d="M180 140l50-22-28 36z" /><path d="M202 154l4-16 24-20" />
+              <path d="M100 90c20 10 30 14 44-4" stroke-dasharray="2 5" />
+              <path d="M176 46c26 10 40 34 30 74" stroke-dasharray="2 5" />
+            </svg>
+          </div>
+
+          <div class="cards">
+            <div class="card reveal">
+              <div class="vis dots">
+                <div class="mini-card">
+                  <div class="row"><span class="ico hot">!</span><strong>Priya needs you</strong><span class="meta" style="margin-left: auto">Messenger</span></div>
+                  <p>Parcel late, customer upset. Captus paused and pinged you on WhatsApp.</p>
+                </div>
+                <div class="mini-card" style="margin-left: 32px">
+                  <div class="row"><span class="ico ok">↩</span><strong>You replied from your phone</strong></div>
+                  <p>Captus steps back for this chat until you hand it back.</p>
+                </div>
+              </div>
+              <h3>Smooth handover, no awkward bots</h3>
+              <p>Complaints, special requests and anything unsure go straight to you with the full context. Reply from the alert itself.</p>
+            </div>
+            <div class="card reveal">
+              <div class="vis dots">
+                <div class="mini-card">
+                  <div class="row"><span class="ico hot">🔥</span><strong>Hot lead · Hafiz Z.</strong></div>
+                  <p>Asked for a quote for 40 pax on 14 Dec. Came from your “Corporate lunch” ad.</p>
+                </div>
+                <div class="mini-card" style="margin-left: 32px">
+                  <div class="row"><span class="ico ok">↻</span><strong>Follow-up sent</strong><span class="meta" style="margin-left: auto">+3h</span></div>
+                  <p>“Hi Hafiz, just checking — shall I hold 14 Dec for you?”</p>
+                </div>
+              </div>
+              <h3>Never lose a warm lead again</h3>
+              <p>Captus spots buyers who are ready, alerts you instantly, and follows up politely when they go quiet.</p>
+            </div>
+            <div class="card reveal">
+              <div class="vis dots">
+                <div class="mini-card">
+                  <div class="row"><strong>Assigned</strong><span class="meta" style="margin-left: auto">Bangsar branch</span></div>
+                  <div class="row" style="margin-top: 8px">
+                    <span class="avatar" style="width: 24px; height: 24px">MK</span><span>Mei → Kelvin</span>
+                    <span class="tag ok" style="margin: 0 0 0 auto">VIP</span>
+                  </div>
+                </div>
+                <div class="mini-card" style="margin-left: 32px">
+                  <div class="row"><strong>Internal note</strong></div>
+                  <p>“Allergic to lavender oil — use the unscented range.”</p>
+                </div>
+              </div>
+              <h3>Built for teams and branches</h3>
+              <p>Assign chats, leave notes, tag VIPs and run several numbers and outlets from one account.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Sell / book / get paid ───────────────────────────────────── -->
+      <section class="section tint frame">
+        <div class="wrap">
+          <div class="head center reveal">
+            <span class="mono kicker hot">Built for how you sell</span>
+            <h2>Sell, book and get paid — without leaving the chat.</h2>
+            <p>Your customers already live in WhatsApp and Instagram. Captus turns those chats into revenue.</p>
+          </div>
+
+          <div class="cards">
+            <div class="card reveal">
+              <div class="vis dots">
+                <div class="mini-card">
+                  <div class="row"><span class="ico ok">📅</span><strong>Reminder · tomorrow 3:00 pm</strong></div>
+                  <p>Hair colour with Mei at Bangsar.</p>
+                  <div class="chips"><span>Confirm</span><span>Reschedule</span><span>Cancel</span></div>
+                </div>
+              </div>
+              <h3>Bookings that show up</h3>
+              <p>Real-time availability, deposits and two-step reminders with one-tap confirm, so fewer customers forget to turn up.</p>
+            </div>
+            <div class="card reveal">
+              <div class="vis dots">
+                <div class="mini-card">
+                  <div class="row"><strong>Invoice #INV-2291</strong><span class="tag ok" style="margin: 0 0 0 auto">Paid</span></div>
+                  <div class="kv" style="margin-top: 10px; font-size: 12.5px">
+                    <div><span>Birthday cake 1kg</span><span>RM 128</span></div>
+                    <div><span>Delivery · Mont Kiara</span><span>RM 15</span></div>
+                    <div style="color: var(--ink)"><span style="color: var(--ink)">Total</span><span>RM 143</span></div>
+                  </div>
+                  <p style="margin-top: 8px">Paid with DuitNow QR · 11:58 pm</p>
+                </div>
+              </div>
+              <h3>Payments inside the conversation</h3>
+              <p>Quotes, invoices and payment links from your real price list. DuitNow, FPX, cards and e-wallets.</p>
+            </div>
+            <div class="card reveal">
+              <div class="vis dots">
+                <div class="mini-card">
+                  <div class="row"><strong>Broadcast · Raya restock</strong></div>
+                  <div class="kv" style="margin-top: 10px; font-size: 12.5px">
+                    <div><span>Sent to “Past buyers”</span><span>1,284</span></div>
+                    <div><span>Read</span><span>91%</span></div>
+                    <div><span>Replied → handled by AI</span><span>342</span></div>
+                    <div style="color: var(--accent)"><span style="color: var(--accent)">Orders</span><span>RM 21,460</span></div>
+                  </div>
+                </div>
+              </div>
+              <h3>Follow-ups and broadcasts that sell</h3>
+              <p>Send offers to the right customers, and let Captus answer every reply — so a campaign never floods your team.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── Why Captus + founding offer ──────────────────────────────── -->
+      <section class="section">
+        <div class="wrap">
+          <div class="head reveal">
+            <span class="mono kicker">Why Captus</span>
+            <h2><span class="dim">Small teams.</span> Big‑business response times.</h2>
+          </div>
+
+          <div class="stats reveal">
+            <div><b>24/7</b><span>Answers at 2 am, on weekends and on public holidays</span></div>
+            <div><b>&lt;20s</b><span>Every customer gets a reply within 20 seconds, even if they send five messages in a row</span></div>
+            <div><b>Any</b><span>language — replies in BM, English, 中文 or a mix, whatever the customer writes in</span></div>
+            <div><b>0</b><span>apps for your customers to install. They message your number like they do today</span></div>
+          </div>
+
+          <div class="founding reveal" id="founding">
+            <div>
+              <span class="mono kicker hot">Founding customers</span>
+              <h3>Be one of our first 20 businesses.</h3>
+              <p>
+                We're opening Captus to a small group of founding businesses. You get more than software — you get us, setting it up
+                with you and building what you need next.
+              </p>
+              <div class="cta-row">
+                <a class="btn btn-primary btn-lg" href="https://app.captus.cc/">Claim a founding spot</a>
+                <a class="btn btn-ghost btn-lg" href="mailto:hello@captus.cc?subject=Captus%20founding%20customer">Ask us anything</a>
+              </div>
+            </div>
+            <ul class="perks">
+              <li><b>We set it up with you</b><span>We connect your number and fill in your business info together, on a call or in person.</span></li>
+              <li><b>Founding price, kept</b><span>A founding-member discount that stays for as long as you stay with us.</span></li>
+              <li><b>A direct line to the founder</b><span>WhatsApp us directly. No ticket queue, no call centre.</span></li>
+              <li><b>Shape what we build</b><span>Tell us what your business needs, and help decide what Captus does next.</span></li>
+            </ul>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── ROI calculator ───────────────────────────────────────────── -->
+      <section class="section tint frame">
+        <div class="wrap">
+          <div class="head reveal">
+            <span class="mono kicker hot">Calculator</span>
+            <h2>How much are you leaving on “seen”?</h2>
+            <p>Every slow or missed reply is a customer who bought somewhere else. Move the sliders to see what it costs you.</p>
+          </div>
+
+          <div class="roi reveal">
+            <div class="roi-in">
+              <div class="field">
+                <label for="r-chats">New enquiries per day <output id="o-chats">30</output></label>
+                <input id="r-chats" type="range" min="5" max="300" step="5" value="30" />
+              </div>
+              <div class="field">
+                <label for="r-miss">Replied late or never <output id="o-miss">35%</output></label>
+                <input id="r-miss" type="range" min="5" max="80" step="5" value="35" />
+              </div>
+              <div class="field">
+                <label for="r-aov">Average sale <output id="o-aov">RM 120</output></label>
+                <input id="r-aov" type="range" min="20" max="2000" step="10" value="120" />
+              </div>
+              <div class="field">
+                <label for="r-conv">Enquiries that would buy with a fast reply <output id="o-conv">20%</output></label>
+                <input id="r-conv" type="range" min="5" max="60" step="5" value="20" />
+              </div>
+            </div>
+            <div class="roi-out">
+              <span class="mono">Revenue lost every month</span>
+              <div class="big" id="o-lost">RM 7,560</div>
+              <p>That's what slow replies are costing you today. Captus answers every one of them in seconds, 24/7.</p>
+              <div class="split">
+                <div><b id="o-year">RM 90,720</b><span>lost per year</span></div>
+                <div><b id="o-missed">315</b><span>customers left waiting each month</span></div>
+              </div>
+              <a class="btn btn-lg" href="https://app.captus.cc/">Get it back — start free</a>
+            </div>
+          </div>
+          <p class="fine">An estimate based on the numbers you enter. Your results will vary.</p>
+        </div>
+      </section>
+
+      <!-- ── Integrations ─────────────────────────────────────────────── -->
+      <section class="section" id="integrations">
+        <div class="wrap integrations">
+          <div class="head reveal">
+            <span class="mono kicker">Integrations</span>
+            <h2>Works with the tools you already use.</h2>
+            <p>
+              Connect your channels, store, calendar and payments in a few clicks. Captus reads from them to answer accurately, and
+              writes back so your records stay up to date.
             </p>
             <div class="cta-row">
-              <a class="btn btn-primary btn-lg" href="mailto:hello@captus.cc?subject=Captus%20for%20my%20business">Get started</a>
-              <a class="btn btn-secondary btn-lg" href="#how">See how it works</a>
+              <a class="btn btn-primary" href="https://app.captus.cc/">Start free trial</a>
+              <a class="btn btn-ghost" href="mailto:hello@captus.cc?subject=Captus%20integrations">Ask about an integration</a>
             </div>
-            <p class="hero-note">Works with your existing WhatsApp Business number. No app for your customers to install.</p>
           </div>
-
-          <div class="phone" aria-label="Example WhatsApp conversation with Captus" role="img">
-            <div class="chat-head">
-              <div class="avatar">KC</div>
-              <div>
-                <strong>Kopi Corner</strong>
-                <span>online</span>
-              </div>
-            </div>
-            <div class="chat-body">
-              <span class="chip">Today</span>
-              <div class="bubble in">Hi, buka pukul berapa hari Sabtu? <small>11:42 pm</small></div>
-              <div class="bubble out">
-                Hai! Hari Sabtu kami buka 8 pagi hingga 10 malam ☕ Nak saya tempah meja untuk anda?
-                <small>11:42 pm</small>
-              </div>
-              <div class="bubble in voice">
-                <span class="voice-bars" aria-hidden="true"
-                  ><i style="height: 6px"></i><i style="height: 12px"></i><i style="height: 16px"></i><i style="height: 9px"></i
-                  ><i style="height: 14px"></i><i style="height: 7px"></i><i style="height: 11px"></i><i style="height: 15px"></i
-                  ><i style="height: 6px"></i
-                ></span>
-                0:07 <small>11:43 pm</small>
-              </div>
-              <div class="bubble out">
-                Done — table for 4 on Saturday at 7:30 pm is booked. I'll send you a reminder that morning 👍
-                <small>11:43 pm</small>
-              </div>
-              <div class="bubble in">Do you have a halal cert? <small>11:44 pm</small></div>
-              <div class="bubble out">Yes, we're JAKIM halal certified. Here's our menu 📄 <small>11:44 pm</small></div>
-            </div>
+          <div class="int-grid reveal">
+            <div class="int"><i style="background: #25d366">W</i>WhatsApp</div>
+            <div class="int"><i style="background: linear-gradient(135deg, #f9ce34, #ee2a7b, #6228d7)">IG</i>Instagram</div>
+            <div class="int"><i style="background: #0a7cff">M</i>Messenger</div>
+            <div class="int"><i style="background: #5e8e3e">S</i>Shopify</div>
+            <div class="int"><i style="background: #7f54b3">Wc</i>WooCommerce</div>
+            <div class="int"><i style="background: #fe2c55">T</i>TikTok Shop</div>
+            <div class="int"><i style="background: #1a73e8">31</i>Google Calendar</div>
+            <div class="int"><i style="background: #0f9d58">G</i>Google Sheets</div>
+            <div class="int"><i style="background: #635bff">S</i>Stripe</div>
+            <div class="int"><i style="background: #e8336d">D</i>DuitNow</div>
+            <div class="int"><i style="background: #00a1e0">B</i>Billplz</div>
+            <div class="int"><i style="background: #ff4f00">Z</i>Zapier</div>
           </div>
         </div>
       </section>
 
-      <section class="section" id="features">
+      <!-- ── Pricing ──────────────────────────────────────────────────── -->
+      <!-- PLACEHOLDER prices and limits — set real plans before launch. -->
+      <section class="pricing-wrap frame" id="pricing" hidden>
         <div class="wrap">
-          <div class="section-head">
-            <span class="kicker">What it does</span>
-            <h2>Like a front desk that never sleeps</h2>
-            <p>Captus handles the repetitive questions so you can focus on the customers who need you.</p>
-          </div>
-          <div class="grid">
-            <div class="card">
-              <div class="icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
-                </svg>
-              </div>
-              <h3>Instant answers, 24/7</h3>
-              <p>Prices, hours, location, policies and FAQs — answered in seconds, even at 2 am, from the business info you provide.</p>
-            </div>
-            <div class="card">
-              <div class="icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <rect x="3" y="4" width="18" height="18" rx="2" />
-                  <path d="M16 2v4M8 2v4M3 10h18" />
-                </svg>
-              </div>
-              <h3>Bookings into your calendar</h3>
-              <p>Checks your Google Calendar for free slots, books the appointment, and sends the customer a reminder.</p>
-            </div>
-            <div class="card">
-              <div class="icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="m5 8 6 6M4 14l6-6 2-3M2 5h12M7 2h1M22 22l-5-10-5 10M14 18h6" />
-                </svg>
-              </div>
-              <h3>Speaks your customers' language</h3>
-              <p>Replies in whatever language the customer writes in — English, Bahasa Melayu, 中文 and more.</p>
-            </div>
-            <div class="card">
-              <div class="icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z" />
-                  <path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v3" />
-                </svg>
-              </div>
-              <h3>Understands voice notes &amp; photos</h3>
-              <p>Customers can send a voice message, a photo or a document — Captus reads it and replies like a person would.</p>
-            </div>
-            <div class="card">
-              <div class="icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z" />
-                  <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
-                </svg>
-              </div>
-              <h3>Sends your menu or catalog</h3>
-              <p>Upload your menu, price list or brochure once. When a customer asks for it, Captus sends the file.</p>
-            </div>
-            <div class="card">
-              <div class="icon">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
-                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" />
-                  <circle cx="9" cy="7" r="4" />
-                  <path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" />
-                </svg>
-              </div>
-              <h3>Hands over to you</h3>
-              <p>
-                Complaints, special requests or anything it isn't sure about get flagged to you. Reply from the inbox and the assistant
-                steps back.
-              </p>
+          <div class="head center reveal" style="position: relative">
+            <span class="mono kicker">Pricing</span>
+            <h2>Simple pricing. Pays for itself in a week.</h2>
+            <p>Every plan includes the AI agent, the shared inbox and unlimited human replies. WhatsApp's own message fees are passed through at cost.</p>
+            <div class="billing" role="group" aria-label="Billing period">
+              <button type="button" aria-pressed="false" data-period="m">Monthly</button>
+              <button type="button" aria-pressed="true" data-period="y">Yearly <em>save 20%</em></button>
             </div>
           </div>
+
+          <div class="plans reveal">
+            <div class="plan">
+              <div class="top"><h3>Starter</h3></div>
+              <p class="for">For solo owners getting started.</p>
+              <div class="price"><span class="cur">RM</span><b data-m="99" data-y="79">79</b><span>/ month</span></div>
+              <a class="btn btn-ghost" href="https://app.captus.cc/">Start free trial</a>
+              <ul>
+                <li>1 WhatsApp number</li>
+                <li>500 AI conversations / month</li>
+                <li>Bookings + reminders</li>
+                <li>Website &amp; document training</li>
+                <li>2 team seats</li>
+              </ul>
+            </div>
+            <div class="plan pop">
+              <div class="top"><h3>Growth</h3><span class="tag ok" style="margin: 0">Most popular</span></div>
+              <p class="for">For busy shops, salons and clinics.</p>
+              <div class="price"><span class="cur">RM</span><b data-m="249" data-y="199">199</b><span>/ month</span></div>
+              <a class="btn btn-primary" href="https://app.captus.cc/">Start free trial</a>
+              <ul>
+                <li>WhatsApp, Instagram &amp; Messenger</li>
+                <li>2,000 AI conversations / month</li>
+                <li>Shopify, WooCommerce &amp; payments</li>
+                <li>Hot-lead alerts + follow-ups</li>
+                <li>Broadcasts &amp; Shadow mode</li>
+                <li>5 team seats</li>
+              </ul>
+            </div>
+            <div class="plan">
+              <div class="top"><h3>Business</h3></div>
+              <p class="for">For multi-outlet teams.</p>
+              <div class="price"><span class="cur">RM</span><b data-m="599" data-y="479">479</b><span>/ month</span></div>
+              <a class="btn btn-ghost" href="mailto:hello@captus.cc?subject=Captus%20Business%20plan">Talk to sales</a>
+              <ul>
+                <li>Everything in Growth</li>
+                <li>6,000 AI conversations / month</li>
+                <li>Multiple numbers &amp; branches</li>
+                <li>Insights + demand reports</li>
+                <li>API, Zapier &amp; priority support</li>
+                <li>Unlimited seats</li>
+              </ul>
+            </div>
+          </div>
+          <p class="plan-note">Need more than 6,000 conversations? <a href="mailto:hello@captus.cc?subject=Captus%20Enterprise">Let's talk.</a></p>
         </div>
       </section>
 
-      <section class="section" id="how">
-        <div class="wrap">
-          <div class="section-head">
-            <span class="kicker">How it works</span>
-            <h2>Live in an afternoon</h2>
-            <p>No scripts, no flowcharts. Just tell it about your business in plain words.</p>
-          </div>
-          <div class="steps">
-            <div class="step">
-              <h3>Connect your WhatsApp number</h3>
-              <p>We connect your WhatsApp Business number through Meta's official WhatsApp Business Platform.</p>
-            </div>
-            <div class="step">
-              <h3>Tell it about your business</h3>
-              <p>Fill in your hours, products, prices, policies and FAQs in the dashboard — or upload documents you already have.</p>
-            </div>
-            <div class="step">
-              <h3>Let it answer</h3>
-              <p>Captus replies to customers right away. Watch every chat from the inbox and jump in whenever you want.</p>
-            </div>
-          </div>
-        </div>
-      </section>
-
+      <!-- ── FAQ ──────────────────────────────────────────────────────── -->
       <section class="section" id="faq">
-        <div class="wrap">
-          <div class="section-head">
-            <span class="kicker">FAQ</span>
-            <h2>Questions, answered</h2>
+        <div class="wrap faq-grid">
+          <div class="head reveal">
+            <span class="mono kicker">FAQ</span>
+            <h2>Questions, answered.</h2>
+            <p>Still unsure? <a href="mailto:hello@captus.cc" style="text-decoration: underline; text-underline-offset: 3px">Email us</a> — a human replies within a day.</p>
           </div>
-          <div class="faq">
-            <details>
+          <div class="faq reveal">
+            <details open>
               <summary>Will it make things up?</summary>
-              <p>
-                No. Captus only answers from the information you give it. If it doesn't know, it says so and hands the chat to you
-                instead of guessing.
-              </p>
+              <p>No. Captus only answers from what you've given it — your website, catalog, documents and settings. If it isn't sure, it says so and hands the chat to you instead of guessing.</p>
             </details>
             <details>
-              <summary>Can I take over a conversation?</summary>
-              <p>
-                Yes. Every chat appears in your inbox. Reply yourself and the assistant pauses for that customer until you hand it
-                back.
-              </p>
-            </details>
-            <details>
-              <summary>Do my customers need to install anything?</summary>
-              <p>No. They message your WhatsApp number exactly as they do today.</p>
+              <summary>Can I keep using the WhatsApp Business app on my phone?</summary>
+              <p>Yes. Keep your number and keep replying from your phone. Captus sees your replies and steps back whenever you jump in.</p>
             </details>
             <details>
               <summary>Is it an official WhatsApp integration?</summary>
-              <p>Yes. Captus uses Meta's WhatsApp Business Platform (Cloud API) — no unofficial apps or browser tricks.</p>
+              <p>Yes. Captus is built on Meta's official WhatsApp Business Platform, Instagram and Messenger APIs — no unofficial apps, no risk of your number being banned.</p>
             </details>
             <details>
-              <summary>How do I update what it knows?</summary>
-              <p>Edit your business info in the dashboard at any time. Changes are used from the very next reply.</p>
+              <summary>Which languages does it speak?</summary>
+              <p>English, Bahasa Melayu, Chinese, Tamil and 50+ more — including Manglish and mixed-language messages. It replies in whatever language the customer uses.</p>
+            </details>
+            <details>
+              <summary>Is my customers' data safe?</summary>
+              <p>Every business's data is kept completely separate from every other business's, and we follow Malaysia's PDPA. You can ask us to export or delete your data at any time.</p>
             </details>
           </div>
         </div>
       </section>
 
-      <section class="section">
+      <!-- ── Final CTA ────────────────────────────────────────────────── -->
+      <section class="final frame">
+        <div class="float t1 tile" aria-hidden="true">
+          <svg viewBox="0 0 104 104" width="104" height="104"><rect width="104" height="104" fill="#121a27" /><circle cx="64" cy="40" r="16" fill="#f4ecd8" /><circle cx="71" cy="35" r="14" fill="#121a27" /><circle cx="24" cy="24" r="1" fill="#fff" /><circle cx="40" cy="70" r="1" fill="#fff" /><circle cx="86" cy="80" r="1" fill="#fff" /></svg>
+        </div>
+        <div class="float t2 mini-card" aria-hidden="true" style="width: 220px">
+          <div class="row"><span class="ico ok">✓</span><strong>Resolved by Captus</strong></div>
+          <p>“Thank you!! so fast 😭”</p>
+        </div>
+        <div class="float t3 mini-card" aria-hidden="true" style="width: 200px">
+          <div class="row"><span class="ico hot">🔥</span><strong>RM 1,280 order</strong></div>
+          <p>Paid via DuitNow · 1:06 am</p>
+        </div>
+        <div class="float t4 tile" aria-hidden="true">
+          <svg viewBox="0 0 104 104" width="104" height="104">
+            <defs><linearGradient id="dawn" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3b4f72" /><stop offset=".6" stop-color="#e98f6a" /><stop offset="1" stop-color="#f6c28b" /></linearGradient></defs>
+            <rect width="104" height="104" fill="url(#dawn)" /><circle cx="52" cy="84" r="16" fill="#fde5bd" /><rect y="84" width="104" height="20" fill="#273246" />
+          </svg>
+        </div>
         <div class="wrap">
-          <div class="cta-band">
-            <h2>Ready to stop missing messages?</h2>
-            <p>Tell us a little about your business and we'll get your WhatsApp assistant set up.</p>
-            <a class="btn btn-lg" href="mailto:hello@captus.cc?subject=Captus%20for%20my%20business">Get started</a>
+          <h2>Never leave a customer on <span class="serif">“seen”</span> again.</h2>
+          <div class="cta-row">
+            <a class="btn btn-primary btn-lg" href="https://app.captus.cc/">Start free trial</a>
+            <a class="btn btn-ghost btn-lg" href="mailto:hello@captus.cc?subject=Captus%20demo">Book a demo</a>
           </div>
         </div>
       </section>
@@ -260,17 +860,104 @@
 
     <footer class="site-footer">
       <div class="wrap">
-        <span>© <span id="year">2026</span> Captus Digital Solutions. All rights reserved.</span>
-        <div class="footer-links">
-          <a href="/privacy">Privacy</a>
-          <a href="/terms">Terms</a>
-          <a href="/data-deletion">Data deletion</a>
+        <div class="foot">
+          <div>
+            <a href="/" class="logo"
+              ><span class="logo-mark"
+                ><svg viewBox="0 0 120 120" width="13" height="13" aria-hidden="true">
+                  <path fill="currentColor" d="M0 120V28A28 28 0 0 1 28 0H92A28 28 0 0 1 120 28V46H70A14 14 0 0 0 70 74H120V92A28 28 0 0 1 92 120Z" /></svg></span
+              >captus</a
+            >
+            <p>The AI front desk for WhatsApp, Instagram and every chat. Made in Kuala Lumpur.</p>
+          </div>
+          <div>
+            <h4 class="mono">Product</h4>
+            <ul>
+              <li><a href="#agent">AI agent</a></li>
+              <li><a href="#product">Inbox</a></li>
+              <li><a href="#product">Bookings</a></li>
+              <li><a href="#shadow">Shadow mode</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4 class="mono">Channels</h4>
+            <ul>
+              <li><a href="#integrations">WhatsApp</a></li>
+              <li><a href="#integrations">Instagram</a></li>
+              <li><a href="#integrations">Messenger</a></li>
+              <li><a href="#integrations">Website chat</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4 class="mono">Company</h4>
+            <ul>
+              <li><a href="mailto:hello@captus.cc">Contact</a></li>
+              <li><a href="https://app.captus.cc/">Sign in</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4 class="mono">Legal</h4>
+            <ul>
+              <li><a href="/privacy">Privacy</a></li>
+              <li><a href="/terms">Terms</a></li>
+              <li><a href="/data-deletion">Data deletion</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="foot-bottom">
+          <span>© <span id="year">2026</span> Captus Digital Solutions. All rights reserved.</span>
           <a href="mailto:hello@captus.cc">hello@captus.cc</a>
         </div>
       </div>
     </footer>
+
     <script>
       document.getElementById("year").textContent = new Date().getFullYear();
+
+      // Product tabs
+      const tabs = document.querySelectorAll(".tab");
+      tabs.forEach((tab) =>
+        tab.addEventListener("click", () => {
+          tabs.forEach((t) => {
+            const on = t === tab;
+            t.setAttribute("aria-selected", on);
+            document.getElementById(t.getAttribute("aria-controls")).hidden = !on;
+          });
+        })
+      );
+
+      // Pricing period
+      const periodBtns = document.querySelectorAll(".billing button");
+      periodBtns.forEach((b) =>
+        b.addEventListener("click", () => {
+          periodBtns.forEach((x) => x.setAttribute("aria-pressed", x === b));
+          document.querySelectorAll(".price b").forEach((p) => (p.textContent = p.dataset[b.dataset.period]));
+        })
+      );
+
+      // ROI calculator
+      const rm = (n) => "RM " + Math.round(n).toLocaleString("en-MY");
+      const $ = (id) => document.getElementById(id);
+      function calc() {
+        const chats = +$("r-chats").value, miss = +$("r-miss").value, aov = +$("r-aov").value, conv = +$("r-conv").value;
+        $("o-chats").textContent = chats;
+        $("o-miss").textContent = miss + "%";
+        $("o-aov").textContent = rm(aov);
+        $("o-conv").textContent = conv + "%";
+        const lost = chats * 30 * (miss / 100) * (conv / 100) * aov;
+        $("o-lost").textContent = rm(lost);
+        $("o-year").textContent = rm(lost * 12);
+        $("o-missed").textContent = Math.round(chats * 30 * (miss / 100)).toLocaleString("en-MY");
+      }
+      document.querySelectorAll(".roi input").forEach((i) => i.addEventListener("input", calc));
+      calc();
+
+      // Reveal on scroll
+      const io = new IntersectionObserver(
+        (entries) => entries.forEach((e) => e.isIntersecting && (e.target.classList.add("in"), io.unobserve(e.target))),
+        { rootMargin: "0px 0px -8% 0px" }
+      );
+      document.querySelectorAll(".reveal").forEach((el) => io.observe(el));
     </script>
   </body>
 </html>
