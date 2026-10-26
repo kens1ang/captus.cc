@@ -1,4 +1,4 @@
-/* Captus home page. Legal pages keep using style.css. */
+/* Captus marketing site: home page and legal pages. */
 
 :root {
   --bg: #f2f3f5;
@@ -1932,6 +1932,173 @@ input[type="range"] {
   border-top: 1px solid var(--line-2);
   color: var(--ink-3);
   font-size: 13px;
+}
+
+/* ── Legal pages ───────────────────────────────────────────────────── */
+
+.legal-hero {
+  padding: 88px 0 56px;
+  border-bottom: 1px solid var(--line-2);
+}
+
+.legal-hero h1 {
+  margin-top: 18px;
+  font-size: clamp(40px, 6vw, 68px);
+  line-height: 1;
+  letter-spacing: -0.035em;
+}
+
+.legal-hero .updated {
+  margin-top: 20px;
+  color: var(--ink-3);
+}
+
+.legal-layout {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 720px);
+  gap: 72px;
+  padding-top: 56px;
+  padding-bottom: 112px;
+}
+
+.legal-nav {
+  position: sticky;
+  top: 92px;
+  align-self: start;
+  font-size: 14px;
+}
+
+.legal-nav .mono {
+  color: var(--ink-3);
+}
+
+.legal-nav nav {
+  display: grid;
+  gap: 2px;
+  margin-top: 14px;
+}
+
+.legal-nav nav a {
+  padding: 7px 12px;
+  border-radius: 6px;
+  color: var(--ink-2);
+}
+
+.legal-nav nav a:hover {
+  color: var(--ink);
+}
+
+.legal-nav nav a[aria-current="page"] {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  color: var(--ink);
+}
+
+.legal-nav p {
+  margin-top: 24px;
+  color: var(--ink-3);
+  line-height: 1.5;
+}
+
+.legal-nav p a {
+  color: var(--ink-2);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.legal {
+  font-size: 16px;
+  line-height: 1.7;
+  color: var(--ink-2);
+}
+
+.legal > :first-child {
+  margin-top: 0;
+}
+
+.legal h2 {
+  margin-top: 48px;
+  padding-top: 24px;
+  border-top: 1px solid var(--line-2);
+  font-size: 24px;
+  line-height: 1.2;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.legal p,
+.legal ul,
+.legal ol {
+  margin: 16px 0 0;
+}
+
+.legal ul,
+.legal ol {
+  padding-left: 22px;
+}
+
+.legal li + li {
+  margin-top: 10px;
+}
+
+.legal li::marker {
+  color: var(--ink-3);
+}
+
+.legal strong {
+  font-weight: 500;
+  color: var(--ink);
+}
+
+.legal a {
+  color: var(--ink);
+  text-decoration: underline;
+  text-decoration-color: var(--ink-3);
+  text-underline-offset: 3px;
+}
+
+.legal a:hover {
+  text-decoration-color: var(--accent);
+}
+
+.legal code {
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-2);
+  font-family: "Geist Mono", ui-monospace, monospace;
+  font-size: 0.85em;
+  color: var(--ink);
+}
+
+@media (max-width: 860px) {
+  .legal-hero {
+    padding: 56px 0 40px;
+  }
+
+  .legal-layout {
+    grid-template-columns: 1fr;
+    gap: 32px;
+    padding-top: 32px;
+    padding-bottom: 80px;
+  }
+
+  .legal-nav {
+    position: static;
+  }
+
+  .legal-nav nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+  }
+
+  .legal-nav nav a {
+    border: 1px solid var(--line);
+  }
+
+  .legal-nav p {
+    display: none;
+  }
 }
 
 /* ── Reveal on scroll ──────────────────────────────────────────────── */

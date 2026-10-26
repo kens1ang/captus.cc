@@ -6,69 +6,152 @@
     <title>Data Deletion — Captus</title>
     <meta name="description" content="How to request deletion of your data from Captus." />
     <link rel="canonical" href="https://captus.cc/data-deletion" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f2f3f5" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0a0b0d" media="(prefers-color-scheme: dark)" />
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/style.css" />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Geist:wght@300;400;500;600;700&family=Geist+Mono:wght@400;500&family=Instrument+Serif:ital@0;1&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="/home.css" />
   </head>
   <body>
     <header class="site-header">
       <div class="wrap">
-        <a href="/" class="logo"><span class="logo-mark"><svg viewBox="0 0 120 120" width="16" height="16" aria-hidden="true"><path fill="currentColor" d="M0 120V28A28 28 0 0 1 28 0H92A28 28 0 0 1 120 28V46H70A14 14 0 0 0 70 74H120V92A28 28 0 0 1 92 120Z"/></svg></span>Captus</a>
-        <nav class="nav"><a class="btn btn-secondary" href="https://app.captus.cc/">Sign in</a></nav>
+        <a href="/" class="logo" aria-label="Captus home"
+          ><span class="logo-mark"
+            ><svg viewBox="0 0 120 120" width="13" height="13" aria-hidden="true">
+              <path fill="currentColor" d="M0 120V28A28 28 0 0 1 28 0H92A28 28 0 0 1 120 28V46H70A14 14 0 0 0 70 74H120V92A28 28 0 0 1 92 120Z" /></svg></span
+          >captus</a
+        >
+        <nav class="nav" aria-label="Main">
+          <a href="/#product">Product</a>
+          <a href="/#agent">AI agent</a>
+          <a href="/#integrations">Integrations</a>
+        </nav>
+        <div class="header-cta">
+          <a class="link" href="https://app.captus.cc/">Sign in</a>
+          <a class="btn btn-ghost btn-sm" href="mailto:hello@captus.cc?subject=Captus%20demo">Book a demo</a>
+          <a class="btn btn-primary btn-sm" href="https://app.captus.cc/">Start free trial</a>
+        </div>
       </div>
     </header>
 
-    <main class="wrap legal">
-      <h1>Data Deletion</h1>
-      <p class="updated">Last updated: 15 October 2026</p>
+    <main>
+      <section class="legal-hero">
+        <div class="wrap">
+          <span class="mono kicker">Legal</span>
+          <h1>Data Deletion</h1>
+          <p class="mono updated">Last updated: 15 October 2026</p>
+        </div>
+      </section>
+      <div class="wrap legal-layout">
+        <aside class="legal-nav" aria-label="Legal pages">
+          <span class="mono">Legal</span>
+          <nav>
+            <a href="/privacy">Privacy Policy</a>
+            <a href="/terms">Terms of Service</a>
+            <a href="/data-deletion" aria-current="page">Data deletion</a>
+          </nav>
+          <p>Questions? <a href="mailto:hello@captus.cc">hello@captus.cc</a></p>
+        </aside>
+        <article class="legal">
 
-      <p>You can ask us to delete your data at any time. Here's how, depending on who you are.</p>
+          <p>You can ask us to delete your data at any time. Here's how, depending on who you are.</p>
 
-      <h2>If you messaged a business that uses Captus</h2>
-      <ol>
-        <li>
-          Email <a href="mailto:hello@captus.cc?subject=Data%20deletion%20request">hello@captus.cc</a> with the subject
-          “Data deletion request”.
-        </li>
-        <li>Include the WhatsApp phone number you messaged from, and the name of the business you messaged.</li>
-        <li>
-          We'll confirm the request and delete your messages, conversation history, bookings and any files you sent from that
-          business's Captus account within 30 days. We'll let you know once it's done.
-        </li>
-      </ol>
-      <p>
-        You can also ask the business directly. Deleting data from Captus does not delete the messages on your own phone or in
-        WhatsApp itself.
-      </p>
+          <h2>If you messaged a business that uses Captus</h2>
+          <ol>
+            <li>
+              Email <a href="mailto:hello@captus.cc?subject=Data%20deletion%20request">hello@captus.cc</a> with the subject
+              “Data deletion request”.
+            </li>
+            <li>Include the WhatsApp phone number you messaged from, and the name of the business you messaged.</li>
+            <li>
+              We'll confirm the request and delete your messages, conversation history, bookings and any files you sent from that
+              business's Captus account within 30 days. We'll let you know once it's done.
+            </li>
+          </ol>
+          <p>
+            You can also ask the business directly. Deleting data from Captus does not delete the messages on your own phone or in
+            WhatsApp itself.
+          </p>
 
-      <h2>If you're a Captus client (business)</h2>
-      <ol>
-        <li>Email <a href="mailto:hello@captus.cc?subject=Account%20deletion%20request">hello@captus.cc</a> from the email address you sign in with.</li>
-        <li>
-          We'll delete your account, your business information, documents, conversations, bookings and calendar connection within
-          30 days, and confirm by email.
-        </li>
-      </ol>
-      <p>
-        You can also disconnect Google Calendar yourself at any time from <strong>Settings › Integrations</strong> in the dashboard,
-        which removes our access to your calendar immediately.
-      </p>
+          <h2>If you're a Captus client (business)</h2>
+          <ol>
+            <li>Email <a href="mailto:hello@captus.cc?subject=Account%20deletion%20request">hello@captus.cc</a> from the email address you sign in with.</li>
+            <li>
+              We'll delete your account, your business information, documents, conversations, bookings and calendar connection within
+              30 days, and confirm by email.
+            </li>
+          </ol>
+          <p>
+            You can also disconnect Google Calendar yourself at any time from <strong>Settings › Integrations</strong> in the dashboard,
+            which removes our access to your calendar immediately.
+          </p>
 
-      <h2>Questions</h2>
-      <p>See our <a href="/privacy">Privacy Policy</a>, or contact <a href="mailto:hello@captus.cc">hello@captus.cc</a>.</p>
+          <h2>Questions</h2>
+          <p>See our <a href="/privacy">Privacy Policy</a>, or contact <a href="mailto:hello@captus.cc">hello@captus.cc</a>.</p>
+        </article>
+      </div>
     </main>
 
     <footer class="site-footer">
       <div class="wrap">
-        <span>© 2026 Captus Digital Solutions. All rights reserved.</span>
-        <div class="footer-links">
-          <a href="/privacy">Privacy</a>
-          <a href="/terms">Terms</a>
-          <a href="/data-deletion">Data deletion</a>
+        <div class="foot">
+          <div>
+            <a href="/" class="logo"
+              ><span class="logo-mark"
+                ><svg viewBox="0 0 120 120" width="13" height="13" aria-hidden="true">
+                  <path fill="currentColor" d="M0 120V28A28 28 0 0 1 28 0H92A28 28 0 0 1 120 28V46H70A14 14 0 0 0 70 74H120V92A28 28 0 0 1 92 120Z" /></svg></span
+              >captus</a
+            >
+            <p>The AI front desk for WhatsApp, Instagram and every chat. Made in Kuala Lumpur.</p>
+          </div>
+          <div>
+            <h4 class="mono">Product</h4>
+            <ul>
+              <li><a href="/#agent">AI agent</a></li>
+              <li><a href="/#product">Inbox</a></li>
+              <li><a href="/#product">Bookings</a></li>
+              <li><a href="/#shadow">Shadow mode</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4 class="mono">Channels</h4>
+            <ul>
+              <li><a href="/#integrations">WhatsApp</a></li>
+              <li><a href="/#integrations">Instagram</a></li>
+              <li><a href="/#integrations">Messenger</a></li>
+              <li><a href="/#integrations">Website chat</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4 class="mono">Company</h4>
+            <ul>
+              <li><a href="mailto:hello@captus.cc">Contact</a></li>
+              <li><a href="https://app.captus.cc/">Sign in</a></li>
+            </ul>
+          </div>
+          <div>
+            <h4 class="mono">Legal</h4>
+            <ul>
+              <li><a href="/privacy">Privacy</a></li>
+              <li><a href="/terms">Terms</a></li>
+              <li><a href="/data-deletion">Data deletion</a></li>
+            </ul>
+          </div>
+        </div>
+        <div class="foot-bottom">
+          <span>© <span id="year">2026</span> Captus Digital Solutions. All rights reserved.</span>
+          <a href="mailto:hello@captus.cc">hello@captus.cc</a>
         </div>
       </div>
     </footer>
+    <script>
+      document.getElementById("year").textContent = new Date().getFullYear();
+    </script>
   </body>
 </html>
