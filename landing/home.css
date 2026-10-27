@@ -328,21 +328,12 @@ h3 {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 5px 12px 5px 6px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  background: var(--surface);
-  font-size: 13px;
+  font-size: 15px;
   color: var(--ink-2);
 }
 
-.pill b {
-  font-weight: 500;
-  font-size: 11px;
-  padding: 2px 8px;
-  border-radius: 999px;
-  background: var(--accent-soft);
-  color: var(--accent);
+.pill:hover {
+  color: var(--ink);
 }
 
 .hero h1 {
@@ -524,25 +515,10 @@ h3 {
 }
 
 .kicker {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
+  display: block;
+  font-size: 15px;
+  font-weight: 500;
   color: var(--ink-2);
-}
-
-.kicker::before {
-  content: "";
-  width: 7px;
-  height: 7px;
-  background: var(--accent);
-}
-
-.kicker.hot::before {
-  background: var(--hot);
-}
-
-.kicker.violet::before {
-  background: var(--violet);
 }
 
 .head {
